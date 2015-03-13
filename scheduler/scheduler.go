@@ -29,7 +29,277 @@ import (
 	"path"
 )
 
+
+type Manager interface{
+	Run(cancel <-chan struct{}, hostID, realm string)
+	Leader() string
+}
+
+type Scheduler struct {
+	shutdown chan struct{}
+	threads sync.WaitGroup
+	poolID string
+	hostID string
+	managers []Manager
+}
+
+func StartScheduler(poolID, hostID string, managers ...Manager) *Scheduler {
+	scheduler := &Scheduler{
+		shutdown: make(chan struct{}),
+		threads: sync.WaitGroup{},
+		poolID: poolID,
+		hostID: hostID,
+		managers: managers,
+	}
+
+	go func() {
+		for {
+			select {
+			case conn := <-zzk.Connect("/", zzk.GetLocalConnection):
+				if conn != nil {
+					if err := s.start(conn); err != nil {
+						// prevent this method from spinning
+						time.Sleep(5 * time.Second)
+						glog.Warningf("Restarting master %s for pool %s", hostID, poolID)
+					} else {
+						return
+					}
+				}
+			case <-s.shutdown:
+				return
+			}
+		}
+	}()
+
+	return scheduler
+}
+
+func (s *Scheduler) start(conn client.Connection) error {
+	cancel := make(chan struct{})
+	defer close(cancel)
+
+	realm := ""
+	for {
+		// Find the resource pool where this master is running
+		var pool pool.ResourcePool
+		ev, err := conn.GetW(path.Join("/pools", s.poolID), &zkservice.PoolNode{ResourcePool: &pool})
+		if err != nil {
+			glog.Errorf("Could not look up pool %s for master %s: %s", s.poolID, s.hostID, err)
+			return err
+		}
+
+		if realm != pool.Realm {
+			close(cancel)
+			s.threads.Wait()
+			cancel = make(chan struct{})
+			for _, manager := range managers {
+				s.threads.Add(1)
+				go func() {
+					defer s.threads.Done()
+					s.manage(cancel, conn, realm, manager)
+				}()
+			}
+			realm = pool.Realm
+		}
+
+		select {
+		case <-ev:
+		case <-s.shutdown:
+			return nil
+		}
+	}
+}
+
+func (s *Scheduler) manage(cancel <-chan struct, conn client.Connection, realm string, manager Manager) {
+	leader := AddMaster(conn, s.hostID, realm, manager.Leader())
+	defer leader.ReleaseLead()
+
+	_cancel := make(chan struct{})
+	defer close(cancel)
+
+	done := make(chan struct{})
+
+	for {
+		ev, err := leader.TakeLead()
+		if err != nil {
+			glog.Errorf("Host %s could not become the leader (%s): %s", s.hostID, manager.Leader(), err)
+			continue
+		}
+
+		select {
+		case <-cancel:
+			// did I shutdown before I became the leader?
+			glog.Infof("Stopping manager for %s (%s)", s.hostID, manager.Leader())
+			return
+		default:
+			// TODO: make sure the realm of the other managers coincides with this realm
+		}
+
+		go func() {
+			if err := manager.Run(_cancel, s.hostID, realm); err != nil {
+				glog.Warningf("Manager for host %s exiting: %s", s.hostID, err)
+				time.Sleep(5 * time.Second)
+				done <- struct{}{}
+				return
+			}
+		}()
+
+		select {
+		case <-done:
+			glog.Warningf("Host %s exited unexpectedly, reconnecting", s.hostID)
+			leader.ReleaseLead()
+		case <-ev:
+			glog.Warningf("Host %s lost lead, reconnecting", s.hostID)
+		case <-cancel:
+			return
+		}
+	}
+}
+
+func (s *Scheduler) Stop() {
+	close(s.shutdown)
+	s.threads.Wait()
+}
+
+type ResourceManager struct {
+	threads sync.WaitGroup
+	shutdown chan struct{}
+
+	localConn client.Connection
+	remoteConn client.Connection
+}
+
+type StorageManager struct {
+}
+
+
+
+func (s *scheduler) startResourceManager(cancel <-chan struct{}, realm string) {
+	s.threads.Add(1)
+	defer s.threads.Done()
+
+	for {
+		restart := func() bool {
+			leader := zzk.NewResourceLeader(s.localConn, s.hostID, realm)
+			ev, err := leader.TakeLead()
+			if err != nil {
+				glog.Errorf("Could not become resource leader: %s", err)
+				return true
+			}
+			defer leader.ReleaseLead()
+
+			// did I shutdown before I became the leader?
+			select {
+			case <-cancel:
+				glog.Infof("Stopping resource manager for %s (%s)", s.hostID, realm)
+				return false
+			default:
+				// make sure the realm of the storage leader coincides with the realm of the 
+				// resource leader
+				storageLeader, err := zzk.GetStorageLeader(s.localConn)
+				if err != client.ErrNoLeaderFound && err != nil {
+					glog.Errorf("Could not get the storage leader for %s (%s): %s", s.hostID, realm, err)
+					return true
+				} else if storagLeader.Realm != realm {
+					// This master is obviously running in the wrong pool
+					glog.Errorf("Invalid master pool (%s) for host %s", s.poolID, s.hostID)
+					return true
+				}
+			}
+
+			_cancel := make(chan struct{})
+			defer close(_cancel)
+
+			// start data synchronizers
+			go s.syncRemote(_cancel)
+			go s.syncLocal(_cancel)
+
+			// start resource listeners
+			s.startResourceListeners(_cancel)
+
+			select {
+			case <-ev:
+				glog.Infof("Lost lead;  restarting resource manager for %s (%s)", s.hostID, realm)
+				return true
+			case <-cancel:
+				glog.Infof("Stopping resource manager for %s (%s)", s.hostID, realm)
+				return false
+			}
+		}()
+
+		if restart {
+			time.Sleep(time.Second)
+		} else {
+			return
+		}
+	}
+}
+
+func (s *scheduler) startResourceListeners(cancel <-chan struct{}) {
+}
+
+func (s *scheduler) startStorageManager(cancel <-chan struct{}, realm string) {
+	s.threads.Add(1)
+	defer s.threads.Done()
+
+	leader := zzk.NewStorageLeader(s.localConn, s.hostID, realm)
+	ev, err := leader.TakeLead()
+	if err != nil {
+		glog.Errorf("Could not become storage leader: %s", err)
+		return
+	}
+	defer leader.ReleaseLead()
+
+	select {
+	case <-cancel:
+		glog.Infof("Stopping storage manager for %s (%s)", s.hostID, realm)
+		return
+	default:
+		// make sure the realm of the resource leader coincides with the realm of
+		// the storage leader
+		resourceLeader,err := zzk.GetResourceLeader(s.localConn)
+		if err != client.ErrNoLeaderFound && err != nil {
+			glog.Errorf("Could not get the resource  leader for %s (%s)", s.hostID, realm)
+			return
+		} else if resourceLeader.Realm != realm {
+			// This master is obviously running in the wrong pool
+			glog.Errorf("Invalid master pool (%s) for host %s", s.poolID, s.hostID)
+			return
+		}
+	}
+
+	// start storage listeners
+	s.startStorageListeners(cancel)
+}
+
+func (s *scheduler) startStorageListeners(cancel <-chan struct{}) }
+}
+
+
+
+func (s *scheduler) Stop() {
+	close(s.shutdown)
+	s.threads.Wait()
+}
+
+
+
+
+
+
+
+
+
 type leaderFunc func(<-chan interface{}, coordclient.Connection, dao.ControlPlane, string, int)
+
+
+
+
+
+
+
+
+
 
 type scheduler struct {
 	sync.Mutex                     // only one process can stop and start the scheduler at a time

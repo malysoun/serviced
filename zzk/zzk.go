@@ -19,7 +19,6 @@ import (
 	"path"
 
 	"github.com/control-center/serviced/coordinator/client"
-	"github.com/control-center/serviced/coordinator/client/zookeeper"
 	"github.com/zenoss/glog"
 )
 
@@ -58,45 +57,6 @@ func GetHostID(leader client.Leader) (string, error) {
 	return hl.HostID, nil
 }
 
-func MonitorRealm(shutdown <-chan interface{}, conn client.Connection, path string) <-chan string {
-	realmC := make(chan string)
-
-	go func() {
-		defer close(realmC)
-		var realm string
-		leader := conn.NewLeader(path, &HostLeader{})
-		for {
-			// monitor path for changes
-			_, event, err := conn.ChildrenW(path)
-			if err != nil {
-				return
-			}
-
-			// Get the current leader and check for changes in its realm
-			var hl HostLeader
-			if err := leader.Current(&hl); err == zookeeper.ErrNoLeaderFound {
-				// pass
-			} else if err != nil {
-				return
-			} else if hl.Realm != realm {
-				realm = hl.Realm
-				select {
-				case realmC <- realm:
-				case <-shutdown:
-					return
-				}
-			}
-
-			select {
-			case <-event:
-			case <-shutdown:
-				return
-			}
-		}
-	}()
-	return realmC
-}
-
 // Listener is zookeeper node listener type
 type Listener interface {
 	// SetConnection sets the connection object
@@ -109,8 +69,6 @@ type Listener interface {
 	Done()
 	// Spawn is the action to be performed when a child node is found on the parent
 	Spawn(<-chan interface{}, string)
-	// PostProcess performs additional action based on the nodes that are in processing
-	PostProcess(p map[string]struct{})
 }
 
 // PathExists verifies if a path exists and does not raise an exception if the
@@ -214,8 +172,6 @@ func Listen(shutdown <-chan interface{}, ready chan<- error, conn client.Connect
 				}(node)
 			}
 		}
-
-		l.PostProcess(processing)
 
 		select {
 		case e := <-event:

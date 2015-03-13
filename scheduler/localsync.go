@@ -13,80 +13,71 @@
 package scheduler
 
 import (
-	"time"
+	"fmt"
+	"strings"
 
-	"github.com/control-center/serviced/coordinator/client"
-	"github.com/control-center/serviced/zzk"
 	zkservice "github.com/control-center/serviced/zzk/service"
 	zkvirtualips "github.com/control-center/serviced/zzk/virtualips"
 	"github.com/zenoss/glog"
 )
 
-const (
-	minWait = 30 * time.Second
-	maxWait = 3 * time.Hour
-)
+type SyncError []error
 
-func (s *scheduler) localSync(shutdown <-chan interface{}, rootConn client.Connection) {
-	wait := time.After(0)
+func (errs SyncError) HasError() bool { return len(errs) }
 
-retry:
-	for {
-		select {
-		case <-wait:
-		case <-shutdown:
-			return
-		}
-
-		pools, err := s.GetResourcePools()
-		if err != nil {
-			glog.Errorf("Could not get resource pools: %s", err)
-			wait = time.After(minWait)
-			continue
-		} else if err := zkservice.SyncResourcePools(rootConn, pools); err != nil {
-			glog.Errorf("Could not do a local sync of resource pools: %s", err)
-			wait = time.After(minWait)
-			continue
-		}
-
-		for _, pool := range pools {
-			conn, err := zzk.GetLocalConnection(zzk.GeneratePoolPath(pool.ID))
-			if err != nil {
-				glog.Errorf("Could not get a pool-based connection for %s to zookeeper: %s", pool.ID, err)
-				wait = time.After(minWait)
-				continue retry
-			}
-
-			// Update the hosts
-			if hosts, err := s.GetHostsByPool(pool.ID); err != nil {
-				glog.Errorf("Could not get hosts in pool %s: %s", pool.ID, err)
-				wait = time.After(minWait)
-				continue retry
-			} else if err := zkservice.SyncHosts(conn, hosts); err != nil {
-				glog.Errorf("Could not do a local sync of hosts: %s", err)
-				wait = time.After(minWait)
-				continue retry
-			}
-
-			// Update the services
-			if svcs, err := s.GetServicesByPool(pool.ID); err != nil {
-				glog.Errorf("Could not get services: %s", err)
-				wait = time.After(minWait)
-				continue retry
-			} else if zkservice.SyncServices(conn, svcs); err != nil {
-				glog.Errorf("Could not do a local sync of services: %s", err)
-				wait = time.After(minWait)
-				continue retry
-			}
-
-			// Update Virtual IPs
-			if err := zkvirtualips.SyncVirtualIPs(conn, pool.VirtualIPs); err != nil {
-				glog.Errorf("Could not sync virtual ips for %s: %s", pool.ID, err)
-				wait = time.After(minWait)
-				continue retry
-			}
-		}
-
-		wait = time.After(maxWait)
+func (errs SyncError) Error() string {
+	if !errs.HasError() {
+		return ""
 	}
+
+	errstr := make([]string, len(errs))
+	for i, err := range errs {
+		errstr[i] = err.Error()
+	}
+	return fmt.Sprintf("receieved %d errors: \n\t%s", len(errs), strings.Join(errstr, "\n\t"))
+}
+
+func (m *ResourceManager) syncLocal() error {
+	var syncerr SyncError
+
+	pools, err := m.f.GetResourcePools(m.ctx)
+	if err != nil {
+		glog.Errorf("Could not get resource pools: %s", err)
+		return err
+	} else if err := Synchronize(zkservice.NewPoolSync(m.lconn, pools)); err != nil {
+		glog.Errorf("Could not synchronize resource pools: %s", err)
+		syncerr = append(syncerr, err)
+	}
+
+	for _, pool := range pools {
+		// update the virtual ips
+		if err := Synchronize(zkvirtualips.NewVIPSync(m.lconn, pool.ID, pool.VirtualIPs)); err != nil {
+			glog.Errorf("Could not synchronize virtual ips in pool %s: %s", pool.ID, err)
+			syncerr = append(syncerr, err)
+		}
+
+		// update the hosts
+		if hosts, err := m.f.FindHostsInPool(m.ctx, pool.ID); err != nil {
+			glog.Errorf("Could not get hosts in pool %s: %s", pool.ID, err)
+			syncerr = append(syncerr, err)
+		} else if err := Synchronize(zkservice.NewHostSync(m.lconn, pool.ID, hosts)); err != nil {
+			glog.Errorf("Could not synchronize hosts in pool %s: %s", pool.ID, err)
+			syncerr = append(syncerr, err)
+		}
+
+		// update the services
+		if services, err := m.f.GetServicesByPool(m.ctx, pool.ID); err != nil {
+			glog.Errorf("Could not get services in pool %s: %s", pool.ID, err)
+			syncerr = append(syncerr, err)
+		} else if err := Synchronize(zkservice.NewServiceSync(m.lconn, pool.ID, services)); err != nil {
+			glog.Errorf("Could not synchronize services in pool %s: %s", pool.ID, err)
+			syncerr = append(syncerr, err)
+		}
+	}
+
+	if syncerr.HasError() {
+		return syncerr
+	}
+
+	return nil
 }
