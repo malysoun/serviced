@@ -63,3 +63,45 @@ func Sync(s Synchronizer) error {
 
 	return nil
 }
+
+func SyncW(s Synchronizer, shutdown <-chan struct{}, conn client.Connection, rootpath string) {
+	for {
+		ids, ev, err := conn.ChildrenW(rootpath)
+		if err != nil {
+			glog.Errorf("Could not children of %s: %s", rootpath, err)
+			return err
+		}
+
+		for _, id := range ids {
+			go func(id string) {
+				for {
+					node := s.Node()
+					ev, err := conn.GetW(path.Join(rootpath, id), node)
+					if err == client.ErrNoNode {
+						if err := s.Delete(node); err != nil {
+							glog.Errorf("Could not remove %s: %s", path.Join(rootpath, id), err)
+							return err
+						}
+						return nil
+					} else if err != nil {
+						glog.Errorf("Could not look up %s: %s", path.Join(rootpath, id), err)
+						return err
+					} else {
+						if err := s.Update(node); err != nil {
+							glog.Errorf("Could not update %s: %s", path.Join(rootpath, id), err)
+							return err
+						}
+					}
+					select {
+					case <-ev:
+						// pass
+					case <-shutdown:
+						return
+					}
+
+				}
+
+			}
+		}
+	}
+}

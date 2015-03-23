@@ -885,6 +885,53 @@ func (f *Facade) getServices(ctx datastore.Context) ([]service.Service, error) {
 	return results, nil
 }
 
+// GetServicePath returns the full path for the service and its tenant ID
+func (f *Facade) GetServicePath(ctx datastore.Context, serviceID string) (string, string, error) {
+	svc, err := f.serviceStore.Get(ctx, serviceID)
+	if err != nil {
+		glog.Errorf("Could not get service %s: %s", serviceID, err)
+		return "", "", err
+	}
+
+	if svc.ParentServiceID == "" {
+		return svc.ID, path.Join(svc.DeploymentID, svc.Name), nil
+	}
+
+	tenantID, servicePath, err := f.GetServicePath(ctx, svc.ParentServiceID)
+	if err != nil {
+		glog.Errorf("Could not get service path for service %s (%s): %s", svc.ID, svc.Name, err)
+		return "", "", err
+	}
+
+	return tenantID, path.Join(servicePath, svc.Name), nil
+}
+
+// GetServiceFromPath returns the service based on its path
+func (f *Facade) GetServiceFromPath(ctx datastore.Context, servicePath string) (*service.Service, error) {
+	// get the deployment id from the path
+	parts := strings.Split(servicePath, "/")
+	if len(parts) < 2 {
+		err := fmt.Errorf("invalid path")
+		return nil, err
+	}
+
+	deploymentID := parts[0]
+	parentID := ""
+
+	var svc *service.Service
+	var err error
+	for i, svcName := range parts[1:] {
+		svc, err = f.serviceStore.FindChildService(ctx, deploymentID, parentID, svcName)
+		if err != nil {
+			glog.Errorf("Could not get service at path %s: %s", path.Join(parts[:i+1]...), err)
+			return nil, err
+		}
+		parentID = svc.ID
+	}
+
+	return svc, nil
+}
+
 //
 func (f *Facade) getTenantIDAndPath(ctx datastore.Context, svc service.Service) (string, string, error) {
 	gs := func(id string) (service.Service, error) {

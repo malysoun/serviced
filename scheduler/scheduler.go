@@ -92,11 +92,11 @@ func (s *Scheduler) start(conn client.Connection) error {
 			close(cancel)
 			s.threads.Wait()
 			cancel = make(chan struct{})
-			for _, manager := range managers {
+			for i := range s.managers {
 				s.threads.Add(1)
 				go func() {
 					defer s.threads.Done()
-					s.manage(cancel, conn, realm, manager)
+					s.manage(cancel, conn, realm, s.managers[i])
 				}()
 			}
 			realm = pool.Realm
