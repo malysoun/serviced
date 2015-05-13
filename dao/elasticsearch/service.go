@@ -45,12 +45,10 @@ func (this *ControlPlaneDao) CloneService(request dao.ServiceCloneRequest, clone
 		return err
 	}
 
-	if err := this.facade.AddService(datastore.Get(), *cloned); err != nil {
+	if err := this.AddService(*cloned, clonedServiceId); err != nil {
 		return err
 	}
 
-	this.createTenantVolume(svc.ID)
-	*clonedServiceId = svc.ID
 	return nil
 }
 
@@ -65,24 +63,42 @@ func (this *ControlPlaneDao) UpdateService(svc service.Service, unused *int) err
 }
 
 //
-func (this *ControlPlaneDao) MigrateService(request dao.ServiceMigrationRequest, unused *int) error {
-	glog.V(2).Infof("ControlPlaneDao.MigrateService: start migration for service id %+v", request.ServiceID)
-	svc, err := this.facade.GetService(datastore.Get(), request.ServiceID)
-	if err != nil {
-		glog.Errorf("ControlPlaneDao.MigrateService: could not find service id %+v: %s", request.ServiceID, err)
+func (this *ControlPlaneDao) RunMigrationScript(request dao.RunMigrationScriptRequest, unused *int) error {
+	glog.V(2).Infof("ControlPlaneDao.RunMigrationScript: start migration for service id %+v", request.ServiceID)
+	if err := this.facade.RunMigrationScript(datastore.Get(), request); err != nil {
+		glog.Errorf("ControlPlaneDao.RunMigrationScript: migration failed for id %+v: %s", request.ServiceID, err)
 		return err
 	}
 
-	if err := this.facade.MigrateService(datastore.Get(), svc, request.MigrationScript, request.DryRun); err != nil {
-		glog.Errorf("ControlPlaneDao.MigrateService: migration failed for id %+v: %s", request.ServiceID, err)
-		return err
-	}
-
-	glog.Infof("ControlPlaneDao.MigrateService: migrated service %+v (dry-run=%v)", request.ServiceID, request.DryRun)
+	glog.Infof("ControlPlaneDao.RunMigrationScript: migrated service %+v (dry-run=%v)", request.ServiceID, request.DryRun)
 	if !request.DryRun {
-		this.createTenantVolume(svc.ID)
+		this.createTenantVolume(request.ServiceID)
 	}
 	return nil
+}
+
+//
+func (this *ControlPlaneDao) MigrateServices(request dao.ServiceMigrationRequest, unused *int) error {
+	if err := this.facade.MigrateServices(datastore.Get(), request); err != nil {
+		return err
+	}
+	if !request.DryRun {
+		this.createTenantVolume(request.ServiceID)
+	}
+	return nil
+}
+
+func (this *ControlPlaneDao) GetServiceList(serviceID string, services *[]service.Service) error {
+	if svcs, err := this.facade.GetServiceList(datastore.Get(), serviceID); err != nil {
+		return err
+	} else {
+		var out []service.Service
+		for _, svc := range svcs {
+			out = append(out, *svc)
+		}
+		*services = out
+		return nil
+	}
 }
 
 //

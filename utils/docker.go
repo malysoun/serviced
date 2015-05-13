@@ -15,12 +15,20 @@ package utils
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 
 	"github.com/docker/docker/registry"
+	"github.com/zenoss/glog"
 )
 
 func DockerLogin(username, password, email string) (string, error) {
+
+	u, err := url.Parse(registry.IndexServerAddress())
+	if err != nil {
+		return "", fmt.Errorf("Error: bad URL %s: %s", registry.IndexServerAddress(), err)
+	}
+	endpoint := registry.Endpoint{URL: u, Version: 1, IsSecure: false}
 
 	if username == "" && password == "" && email == "" {
 		// Attempt login with .dockercfg file.
@@ -28,11 +36,13 @@ func DockerLogin(username, password, email string) (string, error) {
 		if err != nil {
 			return "", err
 		}
+
 		authconfig, ok := configFile.Configs[registry.IndexServerAddress()]
 		if !ok {
+			glog.Warningf("unable to login to docker.io using credentials in %s/.dockercfg", os.Getenv("HOME"))
 			return "", fmt.Errorf("Error: Unable to login, no data for index server.")
 		}
-		status, err := registry.Login(&authconfig, registry.HTTPRequestFactory(nil))
+		status, err := registry.Login(&authconfig, &endpoint, registry.HTTPRequestFactory(nil))
 		if err != nil {
 			return "", err
 		}
@@ -45,7 +55,8 @@ func DockerLogin(username, password, email string) (string, error) {
 			Password:      password,
 			ServerAddress: registry.IndexServerAddress(),
 		}
-		status, err := registry.Login(&authconfig, registry.HTTPRequestFactory(nil))
+		endpoint.IsSecure = true
+		status, err := registry.Login(&authconfig, &endpoint, registry.HTTPRequestFactory(nil))
 		if err != nil {
 			return "", err
 		}

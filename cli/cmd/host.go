@@ -22,6 +22,7 @@ import (
 
 	"github.com/codegangsta/cli"
 	"github.com/control-center/serviced/cli/api"
+	"github.com/pivotal-golang/bytefmt"
 )
 
 // Initializer for serviced host subcommands
@@ -39,6 +40,7 @@ func (c *ServicedCli) initHost() {
 				Action:       c.cmdHostList,
 				Flags: []cli.Flag{
 					cli.BoolFlag{"verbose, v", "Show JSON format"},
+					cli.StringFlag{"show-fields", "ID,Pool,Name,Addr,RPCPort,Cores,RAM,Cur/Max/Avg,Network,Release", "Comma-delimited list describing which fields to display"},
 				},
 			}, {
 				Name:         "add",
@@ -47,7 +49,7 @@ func (c *ServicedCli) initHost() {
 				BashComplete: c.printHostAdd,
 				Action:       c.cmdHostAdd,
 				Flags: []cli.Flag{
-					cli.StringSliceFlag{"ip", &cli.StringSlice{}, "List of available endpoints"},
+					cli.StringFlag{"memory", "", "Memory to allocate on this host, e.g. 20G, 50%"},
 				},
 			}, {
 				Name:         "remove",
@@ -147,16 +149,39 @@ func (c *ServicedCli) cmdHostList(ctx *cli.Context) {
 			fmt.Println(string(jsonHost))
 		}
 	} else {
-		tableHost := newtable(0, 8, 2)
-		tableHost.printrow("ID", "POOL", "NAME", "ADDR", "RPCPORT", "CORES", "MEM", "NETWORK", "RELEASE")
+		t := NewTable(ctx.String("show-fields"))
 		for _, h := range hosts {
-			tableHost.printrow(h.ID, h.PoolID, h.Name, h.IPAddr, h.RPCPort, h.Cores, h.Memory, h.PrivateNetwork, h.ServiceD.Release)
+			var usage string
+			if stats, err := c.driver.GetHostMemory(h.ID); err != nil {
+				usage = "--"
+			} else {
+				usage = fmt.Sprintf("%s / %s / %s", bytefmt.ByteSize(uint64(stats.Last)), bytefmt.ByteSize(uint64(stats.Max)), bytefmt.ByteSize(uint64(stats.Average)))
+			}
+
+			ramcommit := bytefmt.ByteSize(h.RAMCommitment)
+			if h.RAMCommitment <= 0 || h.Memory < h.RAMCommitment {
+				ramcommit = bytefmt.ByteSize(h.Memory)
+			}
+
+			t.AddRow(map[string]interface{}{
+				"ID":          h.ID,
+				"Pool":        h.PoolID,
+				"Name":        h.Name,
+				"Addr":        h.IPAddr,
+				"RPCPort":     h.RPCPort,
+				"Cores":       h.Cores,
+				"RAM":         ramcommit,
+				"Cur/Max/Avg": usage,
+				"Network":     h.PrivateNetwork,
+				"Release":     h.ServiceD.Release,
+			})
 		}
-		tableHost.flush()
+		t.Padding = 6
+		t.Print()
 	}
 }
 
-// serviced host add HOST:PORT POOLID
+// serviced host add HOST:PORT POOLID [--memory SIZE|%]
 func (c *ServicedCli) cmdHostAdd(ctx *cli.Context) {
 	args := ctx.Args()
 	if len(args) < 2 {
@@ -187,6 +212,7 @@ func (c *ServicedCli) cmdHostAdd(ctx *cli.Context) {
 	cfg := api.HostConfig{
 		Address: &address,
 		PoolID:  args[1],
+		Memory:  ctx.String("memory"),
 	}
 
 	if host, err := c.driver.AddHost(cfg); err != nil {

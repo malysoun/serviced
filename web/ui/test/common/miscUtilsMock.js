@@ -5,9 +5,6 @@
 var miscUtilsMock = function($provide) {
     $provide.factory('miscUtils', function() {
         var mock = jasmine.createSpyObj('miscUtils', [
-            'buildTable',
-            'set_order',
-            'get_order_class',
             'unauthorized',
             'indentClass',
             'downloadFile',
@@ -17,7 +14,8 @@ var miscUtilsMock = function($provide) {
             'after',
             'mapToArr',
             'memoize',
-            'needsHostAlias'
+            'needsHostAlias',
+            'parseEngineeringNotation'
         ]);
 
         return mock;

@@ -22,6 +22,7 @@ import (
 	"github.com/control-center/serviced/domain/servicestate"
 	"github.com/control-center/serviced/domain/servicetemplate"
 	"github.com/control-center/serviced/domain/user"
+	"github.com/control-center/serviced/metrics"
 	"github.com/control-center/serviced/volume"
 )
 
@@ -50,10 +51,20 @@ type ServiceCloneRequest struct {
 	Suffix    string
 }
 
+// Only use one of ScriptName or ScriptBody. If both are specified, ScriptBody has precedence.
+type RunMigrationScriptRequest struct {
+	ServiceID  string // The ID of the service to migrate.
+	ScriptBody string // The content of the service migration script to use.
+	ScriptName string // The name of the service migration script in the docker image for the specified service.
+	SDKVersion string // The version of the service migration SDK to use.
+	DryRun     bool
+}
+
 type ServiceMigrationRequest struct {
-	ServiceID       string
-	MigrationScript string
-	DryRun          bool
+	ServiceID string
+	Modified  []*service.Service
+	Cloned    []*service.Service
+	DryRun    bool
 }
 
 type ServiceStateRequest struct {
@@ -98,6 +109,13 @@ type RollbackRequest struct {
 	ForceRestart bool
 }
 
+type MetricRequest struct {
+	StartTime time.Time
+	HostID    string
+	ServiceID string
+	Instances []metrics.ServiceInstance
+}
+
 // The ControlPlane interface is the API for a serviced master.
 type ControlPlane interface {
 
@@ -120,7 +138,10 @@ type ControlPlane interface {
 	UpdateService(service service.Service, unused *int) error
 
 	// Migrate a service definition
-	MigrateService(request ServiceMigrationRequest, unused *int) error
+	RunMigrationScript(request RunMigrationScriptRequest, unused *int) error
+
+	// Migrate a service definition
+	MigrateServices(request ServiceMigrationRequest, unused *int) error
 
 	// Remove a service definition
 	RemoveService(serviceId string, unused *int) error
@@ -190,6 +211,18 @@ type ControlPlane interface {
 
 	// Attach to a running container with a predefined action
 	Action(request AttachRequest, unused *int) error
+
+	// ------------------------------------------------------------------------
+	// Metrics
+
+	// Get service memory stats for a particular host
+	GetHostMemoryStats(req MetricRequest, stats *metrics.MemoryUsageStats) error
+
+	// Get service memory stats for a particular service
+	GetServiceMemoryStats(req MetricRequest, stats *metrics.MemoryUsageStats) error
+
+	// Get service memory stats for a particular service instance
+	GetInstanceMemoryStats(req MetricRequest, stats *[]metrics.MemoryUsageStats) error
 
 	//---------------------------------------------------------------------------
 	// ServiceTemplate CRUD
@@ -271,4 +304,7 @@ type ControlPlane interface {
 
 	// BackupStatus monitors the status of a backup or restore
 	BackupStatus(unused int, status *string) error
+
+	// Check the health of control center
+	ServicedHealthCheck(IServiceNames []string, results *[]IServiceHealthResult) error
 }

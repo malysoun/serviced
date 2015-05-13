@@ -30,6 +30,7 @@ import (
 	"github.com/control-center/serviced/domain/service"
 	"github.com/control-center/serviced/domain/servicetemplate"
 	"github.com/control-center/serviced/isvcs"
+	"github.com/control-center/serviced/metrics"
 	"github.com/control-center/serviced/node"
 	"github.com/control-center/serviced/servicedversion"
 	"github.com/control-center/serviced/utils"
@@ -234,6 +235,22 @@ func getIRS() []dao.RunningService {
 	return services
 }
 
+func restPostServicesForMigration(w *rest.ResponseWriter, r *rest.Request, client *node.ControlClient) {
+	var migrationRequest dao.ServiceMigrationRequest
+	err := r.DecodeJsonPayload(&migrationRequest)
+	if err != nil {
+		glog.Errorf("Could not decode services for migration: %v", err)
+		restBadRequest(w, err)
+		return
+	}
+	var unused int
+	if err = client.MigrateServices(migrationRequest, &unused); err != nil {
+		restServerError(w, err)
+		return
+	}
+	w.WriteJson(&simpleResponse{"Migrated services.", []link{}})
+}
+
 func restGetAllServices(w *rest.ResponseWriter, r *rest.Request, client *node.ControlClient) {
 	tenantID := r.URL.Query().Get("tenantID")
 	if tags := r.URL.Query().Get("tags"); tags != "" {
@@ -370,6 +387,13 @@ func restGetStatusForService(w *rest.ResponseWriter, r *rest.Request, client *no
 	w.WriteJson(&statusmap)
 }
 
+type uiRunningService struct {
+	dao.RunningService
+	RAMMax     int64
+	RAMLast    int64
+	RAMAverage int64
+}
+
 func restGetAllRunning(w *rest.ResponseWriter, r *rest.Request, client *node.ControlClient) {
 	var services []dao.RunningService
 	err := client.GetRunningServices(&empty, &services)
@@ -383,19 +407,65 @@ func restGetAllRunning(w *rest.ResponseWriter, r *rest.Request, client *node.Con
 		services = []dao.RunningService{}
 	}
 
-	for ii, rsvc := range services {
+	instances := []metrics.ServiceInstance{}
+
+	for _, rsvc := range services {
 		var svc service.Service
 		if err := client.GetService(rsvc.ServiceID, &svc); err != nil {
 			glog.Errorf("Could not get services: %v", err)
 			restServerError(w, err)
 		}
 		fillBuiltinMetrics(&svc)
-		services[ii].MonitoringProfile = svc.MonitoringProfile
+		rsvc.MonitoringProfile = svc.MonitoringProfile
+		instances = append(instances, metrics.ServiceInstance{
+			rsvc.ServiceID,
+			rsvc.InstanceID,
+		})
 	}
 
+	query := dao.MetricRequest{
+		StartTime: time.Now().Add(-time.Hour * 24),
+		Instances: instances,
+	}
+
+	response := []metrics.MemoryUsageStats{}
+
+	if len(instances) > 0 {
+		client.GetInstanceMemoryStats(query, &response)
+	}
+
+	musMap := make(map[string]metrics.MemoryUsageStats)
+
+	for _, mus := range response {
+		key := fmt.Sprintf("%s-%s", mus.ServiceID, mus.InstanceID)
+		musMap[key] = mus
+	}
+
+	uiServices := []uiRunningService{}
+
 	services = append(services, getIRS()...)
-	glog.V(2).Infof("Return %d running services", len(services))
-	w.WriteJson(&services)
+
+	for _, rsvc := range services {
+		key := fmt.Sprintf("%s-%d", rsvc.ServiceID, rsvc.InstanceID)
+		if mus, ok := musMap[key]; ok {
+			uiServices = append(uiServices, uiRunningService{
+				rsvc,
+				mus.Max,
+				mus.Last,
+				mus.Average,
+			})
+		} else {
+			uiServices = append(uiServices, uiRunningService{
+				rsvc,
+				-1,
+				-1,
+				-1,
+			})
+		}
+	}
+
+	glog.V(2).Infof("Return %d running services", len(uiServices))
+	w.WriteJson(&uiServices)
 }
 
 func restKillRunning(w *rest.ResponseWriter, r *rest.Request, client *node.ControlClient) {
@@ -444,30 +514,43 @@ func restGetTopServices(w *rest.ResponseWriter, r *rest.Request, client *node.Co
 }
 
 func restGetService(w *rest.ResponseWriter, r *rest.Request, client *node.ControlClient) {
-	sid, err := url.QueryUnescape(r.PathParam("serviceId"))
+	serviceID, err := url.QueryUnescape(r.PathParam("serviceId"))
 	if err != nil {
 		restBadRequest(w, err)
 		return
 	}
 
-	if strings.Contains(sid, "isvc-") {
-		w.WriteJson(isvcs.ISVCSMap[sid])
+	includeChildren := r.URL.Query().Get("includeChildren")
+
+	if includeChildren == "true" {
+		services := []service.Service{}
+		if err := client.GetServiceList(serviceID, &services); err != nil {
+			glog.Errorf("Could not get services: %v", err)
+			restServerError(w, err)
+			return
+		}
+		w.WriteJson(&services)
+		return
+	}
+
+	if strings.Contains(serviceID, "isvc-") {
+		w.WriteJson(isvcs.ISVCSMap[serviceID])
 		return
 	}
 	svc := service.Service{}
-	if err := client.GetService(sid, &svc); err != nil {
-		glog.Errorf("Could not get service %v: %v", sid, err)
+	if err := client.GetService(serviceID, &svc); err != nil {
+		glog.Errorf("Could not get service %v: %v", serviceID, err)
 		restServerError(w, err)
 		return
 	}
 
-	if svc.ID == sid {
+	if svc.ID == serviceID {
 		fillBuiltinMetrics(&svc)
 		w.WriteJson(&svc)
 		return
 	}
 
-	glog.Errorf("No such service [%v]", sid)
+	glog.Errorf("No such service [%v]", serviceID)
 	restServerError(w, err)
 }
 

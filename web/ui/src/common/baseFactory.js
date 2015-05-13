@@ -94,6 +94,9 @@
                 })
                 .error((data, status) => {
                     console.error("Unable to update factory", data);
+                })
+                .finally(() => {
+                    this.lastUpdate = new Date().getTime();
                 });
             return deferred.promise;
         },
@@ -101,7 +104,7 @@
         // begins auto-update
         activate: function(){
             if(!this.updatePromise){
-                this.updatePromise = $interval(this.update.bind(this), UPDATE_FREQUENCY);
+                this.updatePromise = $interval(() => this.update(), UPDATE_FREQUENCY);
             }
         },
 

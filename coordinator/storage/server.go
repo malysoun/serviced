@@ -21,6 +21,8 @@ import (
 	"github.com/control-center/serviced/coordinator/client/zookeeper"
 	"github.com/control-center/serviced/domain/host"
 	"github.com/zenoss/glog"
+	"strconv"
+	"time"
 )
 
 // Server manages the exporting of a file system to clients.
@@ -40,12 +42,12 @@ type StorageDriver interface {
 }
 
 // NewServer returns a Server object to manage the exported file system
-func NewServer(driver StorageDriver, host *host.Host) (*Server, error) {
+func NewServer(driver StorageDriver, host *host.Host, volumesPath string) (*Server, error) {
 	if len(driver.ExportPath()) < 9 {
 		return nil, fmt.Errorf("export path can not be empty")
 	}
 
-	monitor, err := NewMonitor(driver, getDefaultNFSMonitorMasterInterval())
+	monitor, err := NewMonitor(driver, getDefaultNFSMonitorMasterInterval(), volumesPath)
 	if err != nil {
 		return nil, fmt.Errorf("unable to create new monitor %s", err)
 	}
@@ -63,6 +65,7 @@ func (s *Server) Run(shutdown <-chan interface{}, conn client.Connection) error 
 	node := &Node{
 		Host:       *s.host,
 		ExportPath: fmt.Sprintf("%s:%s", s.host.IPAddr, s.driver.ExportPath()),
+		ExportTime: strconv.FormatInt(time.Now().UnixNano(), 16),
 	}
 
 	// Create the storage leader and client nodes
@@ -84,7 +87,7 @@ func (s *Server) Run(shutdown <-chan interface{}, conn client.Connection) error 
 	}
 
 	// monitor dfs; log warnings each cycle; restart dfs if needed
-	go s.monitor.MonitorDFSVolume(path.Join("/exports", s.driver.ExportPath()), shutdown, s.monitor.DFSVolumeMonitorPollUpdateFunc)
+	go s.monitor.MonitorDFSVolume(path.Join("/exports", s.driver.ExportPath()), s.host.IPAddr, node.ExportTime, shutdown, s.monitor.DFSVolumeMonitorPollUpdateFunc)
 
 	// loop until shutdown event
 	defer leader.ReleaseLead()

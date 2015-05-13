@@ -21,11 +21,13 @@ var DEBUG = false;
  * Main module & controllers
  ******************************************************************************/
 var controlplane = angular.module('controlplane', [
-    'ngRoute', 'ngCookies','ngDragDrop','pascalprecht.translate',
+    'ngRoute', 'ngCookies','ngDragDrop','pascalprecht.translate', 'ngAnimate',
     'angularMoment', 'zenNotify', 'serviceHealth', 'ui.datetimepicker',
     'modalService', 'angular-data.DSCacheFactory', 'ui.codemirror',
     'sticky', 'graphPanel', 'servicesFactory', 'healthIcon',
-    'authService', 'miscUtils', 'hostsFactory', 'poolsFactory', 'instancesFactory', 'baseFactory']);
+    'authService', 'miscUtils', 'hostsFactory', 'poolsFactory', 'instancesFactory', 'baseFactory',
+    'ngTable', 'jellyTable'
+]);
 
 controlplane.
     config(['$routeProvider', function($routeProvider) {
@@ -114,8 +116,13 @@ controlplane.
         };
     }).
     filter('toGB', function(){
-        return function(input){
-            return (input/1073741824).toFixed(2) + " GB";
+        return function(input, hide){
+            return (input/(1024*1024*1024)).toFixed(2) + (hide ? "": " GB");
+        };
+    }).
+    filter('toMB', function(){
+        return function(input, hide){
+            return (input/(1024*1024)).toFixed(2) + (hide ? "": " MB");
         };
     }).
     filter('cut', function(){
@@ -147,4 +154,17 @@ controlplane.
         return function(dateString){
             return moment(dateString).format('MMM Do YYYY, hh:mm:ss');
         };
+    }).
+    // create a human readable "fromNow" string from
+    // a date. eg: "a few seconds ago"
+    filter('fromNow', function(){
+        return function(date){
+            return moment(date).fromNow();
+        };
+    })
+    .run(function($rootScope, $window){
+        // scroll to top of page on navigation
+        $rootScope.$on("$routeChangeSuccess", function (event, currentRoute, previousRoute) {
+            $window.scrollTo(0, 0);
+        });
     });

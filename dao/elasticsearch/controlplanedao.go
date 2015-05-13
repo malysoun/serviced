@@ -29,6 +29,7 @@ import (
 	"github.com/control-center/serviced/dfs"
 	"github.com/control-center/serviced/domain/service"
 	"github.com/control-center/serviced/facade"
+	"github.com/control-center/serviced/metrics"
 	"github.com/control-center/serviced/zzk"
 	zkdocker "github.com/control-center/serviced/zzk/docker"
 	"github.com/zenoss/elastigo/api"
@@ -45,11 +46,13 @@ var _ dao.ControlPlane = &ControlPlaneDao{}
 type ControlPlaneDao struct {
 	hostName       string
 	port           int
+	rpcPort        int
 	varpath        string
 	fsType         string
 	dfs            *dfs.DistributedFilesystem
 	facade         *facade.Facade
 	dockerRegistry string
+	metricClient   *metrics.Client
 	backupLock     sync.RWMutex
 	restoreLock    sync.RWMutex
 }
@@ -114,7 +117,7 @@ func (this *ControlPlaneDao) Action(request dao.AttachRequest, unused *int) erro
 }
 
 // Create a elastic search control center data access object
-func NewControlPlaneDao(hostName string, port int) (*ControlPlaneDao, error) {
+func NewControlPlaneDao(hostName string, port int, rpcPort int) (*ControlPlaneDao, error) {
 	glog.V(0).Infof("Opening ElasticSearch ControlPlane Dao: hostName=%s, port=%d", hostName, port)
 	api.Domain = hostName
 	api.Port = strconv.Itoa(port)
@@ -122,16 +125,17 @@ func NewControlPlaneDao(hostName string, port int) (*ControlPlaneDao, error) {
 	dao := &ControlPlaneDao{
 		hostName: hostName,
 		port:     port,
+		rpcPort:  rpcPort,
 	}
 
 	return dao, nil
 }
 
-func NewControlSvc(hostName string, port int, facade *facade.Facade, varpath, fsType string, maxdfstimeout time.Duration, dockerRegistry string) (*ControlPlaneDao, error) {
+func NewControlSvc(hostName string, port int, facade *facade.Facade, varpath, fsType string, rpcPort int, maxdfstimeout time.Duration, dockerRegistry string) (*ControlPlaneDao, error) {
 	glog.V(2).Info("calling NewControlSvc()")
 	defer glog.V(2).Info("leaving NewControlSvc()")
 
-	s, err := NewControlPlaneDao(hostName, port)
+	s, err := NewControlPlaneDao(hostName, port, rpcPort)
 	if err != nil {
 		return nil, err
 	}
@@ -152,6 +156,13 @@ func NewControlSvc(hostName string, port int, facade *facade.Facade, varpath, fs
 		return nil, err
 	}
 	s.dfs = dfs
+
+	// initialize the metrics client
+	metricClient, err := metrics.NewClient(fmt.Sprintf("http://%s:8888", hostName))
+	if err != nil {
+		return nil, err
+	}
+	s.metricClient = metricClient
 
 	return s, nil
 }

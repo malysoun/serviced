@@ -23,6 +23,7 @@ import (
 	"github.com/control-center/serviced/domain/servicestate"
 	template "github.com/control-center/serviced/domain/servicetemplate"
 	"github.com/control-center/serviced/facade"
+	"github.com/control-center/serviced/metrics"
 	"github.com/control-center/serviced/script"
 )
 
@@ -32,12 +33,14 @@ type API interface {
 	// Server
 	StartServer() error
 	StartProxy(ControllerOptions) error
+	ServicedHealthCheck(IServiceNames []string) ([]dao.IServiceHealthResult, error)
 
 	// Hosts
 	GetHosts() ([]host.Host, error)
 	GetHost(string) (*host.Host, error)
 	AddHost(HostConfig) (*host.Host, error)
 	RemoveHost(string) error
+	GetHostMemory(string) (*metrics.MemoryUsageStats, error)
 
 	// Pools
 	GetResourcePools() ([]pool.ResourcePool, error)
@@ -51,14 +54,15 @@ type API interface {
 	// Services
 	GetServices() ([]service.Service, error)
 	GetServiceStates(string) ([]servicestate.ServiceState, error)
-	GetServiceStatus(string) (map[string]dao.ServiceStatus, error)
+	GetServiceStatus(string) (map[string]map[string]interface{}, error)
 	GetService(string) (*service.Service, error)
 	GetServicesByName(string) ([]service.Service, error)
 	AddService(ServiceConfig) (*service.Service, error)
 	CloneService(string, string) (*service.Service, error)
 	RemoveService(string) error
 	UpdateService(io.Reader) (*service.Service, error)
-	MigrateService(string, io.Reader, bool) (*service.Service, error)
+	RunMigrationScript(string, io.Reader, bool, string) (*service.Service, error)
+	RunEmbeddedMigrationScript(string, string, bool, string) (*service.Service, error)
 	StartService(SchedulerConfig) (int, error)
 	RestartService(SchedulerConfig) (int, error)
 	StopService(SchedulerConfig) (int, error)

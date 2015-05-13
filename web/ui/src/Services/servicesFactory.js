@@ -5,16 +5,17 @@
 (function() {
     'use strict';
 
-    var resourcesFactory, $q, serviceHealth, instancesFactory;
+    var resourcesFactory, $q, serviceHealth, instancesFactory, utils;
 
     angular.module('servicesFactory', []).
     factory("servicesFactory", ["$rootScope", "$q", "resourcesFactory", "$interval", "$serviceHealth", "instancesFactory", "baseFactory", "miscUtils",
-    function($rootScope, q, _resourcesFactory, $interval, _serviceHealth, _instancesFactory, BaseFactory, utils){
+    function($rootScope, q, _resourcesFactory, $interval, _serviceHealth, _instancesFactory, BaseFactory, _utils){
 
         // share resourcesFactory throughout
         resourcesFactory = _resourcesFactory;
         instancesFactory = _instancesFactory;
         serviceHealth = _serviceHealth;
+        utils = _utils;
         $q = q;
 
         var UPDATE_PADDING = 1000;
@@ -28,14 +29,14 @@
         angular.extend(newFactory, {
             // TODO - update list by application instead
             // of all services ever?
-            update: function(){
+            update: function(force){
                 var deferred = $q.defer(),
                     now = new Date().getTime(),
                     since;
 
                 // if this is the first update, request
                 // all services
-                if(this.lastUpdate === undefined){
+                if(this.lastUpdate === undefined || force){
                     since = 0;
                 } else {
                     since = (now - this.lastUpdate) + UPDATE_PADDING;
@@ -87,7 +88,13 @@
                         this.updateHealth();
 
                         deferred.resolve();
+                    })
+                    .finally(() => {
+                        this.lastUpdate = new Date().getTime();
                     });
+
+                // keep instances up to date
+                instancesFactory.update();
 
                 return deferred.promise;
             },
@@ -114,7 +121,7 @@
                 // if this is a top level service
                 } else {
                     this.serviceTree.push(service);
-                    this.serviceTree.sort(sortServicesByName);
+                    //this.serviceTree.sort(sortServicesByName);
                 }
 
                 // ICKY GROSS HACK!
@@ -136,41 +143,15 @@
             // TODO - debounce this guy
             updateHealth: function(){
                 serviceHealth.update(this.serviceMap).then((statuses) => {
-                    var ids, instance;
-
                     for(var id in statuses){
                         // attach status to associated service
                         if(this.serviceMap[id]){
                             this.serviceMap[id].status = statuses[id];
-
-                        // this may be a service instance. instances are keyed
-                        // with the following pattern: serviceid.InstanceID (eg 1234567890.1)
-                        } else if(id.indexOf(".") !== -1){
-                            ids = id.split(".");
-                            if(this.serviceMap[ids[0]]){
-                                instance = this.serviceMap[ids[0]].instances.filter((instance) => {
-                                    // ids[1] will be a string, and InstanceID is a number
-                                    return instance.model.InstanceID === +ids[1];
-                                });
-                                if(instance.length){
-                                    // TODO - move this into an instance method
-                                    instance[0].status = statuses[id];
-                                }
-                            }
                         }
                     }
                 });
             }
         });
-
-        // wrap some methods with extra functionality
-        newFactory.activate = utils.after(newFactory.activate, function(){
-            instancesFactory.activate();
-        }, newFactory);
-
-        newFactory.deactivate = utils.after(newFactory.deactivate, function(){
-            instancesFactory.deactivate();
-        }, newFactory);
 
         return newFactory;
     }]);
@@ -193,6 +174,11 @@
         // cache for computed values
         this.cache = new Cache(["vhosts", "addresses", "descendents"]);
 
+        this.resources = {
+            RAMCommitment: 0,
+            RAMAverage: 0
+        };
+
         this.update(service);
 
         // this newly created child should be
@@ -211,7 +197,10 @@
         APP = "app",
         // a service with children but no
         // startup command
-        META = "meta";
+        META = "meta",
+        // a service who's parent is still
+        // being deployed
+        DEPLOYING = "deploying";
 
     // DesiredState enum
     var START = 1,
@@ -253,6 +242,7 @@
 
             // make service immutable
             this.model = Object.freeze(service);
+
         },
 
         // invalidate all caches. This is needed 
@@ -263,7 +253,6 @@
 
         evaluateServiceType: function(){
             // infer service type
-            // TODO - check for more types
             this.type = [];
             if(this.model.ID.indexOf("isvc-") !== -1){
                 this.type.push(ISVC);
@@ -275,6 +264,10 @@
 
             if(this.children.length && !this.model.Startup){
                 this.type.push(META);
+            }
+
+            if(this.parent && this.parent.isDeploying()){
+                this.type.push(DEPLOYING);
             }
         },
 
@@ -338,12 +331,21 @@
         // NOTE: this isn't using a cache because this can be
         // invalidated at any time, so it should always be checked
         getServiceInstances: function(){
-            var newInstances = instancesFactory.getByServiceId(this.id);
-            mergeArray(this.instances, newInstances, "id");
-            this.instances.sort(function(a,b){
+            this.instances = instancesFactory.getByServiceId(this.id);
+            this.instances.sort(function(a,b) {
                 return a.model.InstanceID > b.model.InstanceID;
             });
             return this.instances;
+        },
+
+        resourcesGood: function() {
+            var instances = this.getServiceInstances();
+            for (var i = 0; i < instances.length; i++) {
+                if (!instances[i].resourcesGood()) {
+                    return false;
+                }
+            }
+            return true;
         },
 
         // some convenience methods
@@ -353,6 +355,16 @@
 
         isApp: function(){
             return !!~this.type.indexOf(APP);
+        },
+
+        isDeploying: function(){
+            return !!~this.type.indexOf(DEPLOYING);
+        },
+
+        // HACK: this is a temporary fix to mark
+        // services deploying.
+        markDeploying: function(){
+            this.type.push(DEPLOYING);
         },
 
         // if any cache is dirty, this whole object
@@ -414,10 +426,10 @@
                                 ID: endpoint.AddressAssignment.ID,
                                 AssignmentType: endpoint.AddressAssignment.AssignmentType,
                                 EndpointName: endpoint.AddressAssignment.EndpointName,
-                                HostID: endpoint.AddressAssignment.HostID,
-                                PoolID: endpoint.AddressAssignment.PoolID,
                                 IPAddr: endpoint.AddressAssignment.IPAddr,
                                 Port: endpoint.AddressConfig.Port,
+                                HostID: endpoint.AddressAssignment.HostID,
+                                PoolID: service.model.PoolID,
                                 ServiceID: service.id,
                                 ServiceName: service.name
                             });
@@ -485,51 +497,6 @@
             return hosts;
         }
     });
-
-
-    // merge arrays of objects. Merges array b into array
-    // a based on the provided key/predicate. if already
-    // exists in a, a shallow merge or merge function is used.
-    // if anything is not present in b that is present in a,
-    // it is removed from a. a is mutated by this function
-    // TODO - make key into a predicate function
-    function mergeArray(a, b, key, merge){
-        // default to shallow merge
-        merge = merge || function(a, b){
-            for(var i in a){
-                a[i] = b[i];
-            }
-        };
-
-        var oldKeys = a.map(function(el){ return el[key]; });
-
-        b.forEach(function(el){
-            var oldElIndex = oldKeys.indexOf(el[key]);
-
-            // update
-            if(oldElIndex !== -1){
-                merge(a[oldElIndex], el);
-
-                // nullify id in list
-                oldKeys[oldElIndex] = null;
-
-            // add
-            } else {
-                a.push(el);
-            }
-        });
-
-        // delete
-        for(var i = a.length - 1; i >= 0; i--){
-            if(~oldKeys.indexOf(a[i][key])){
-                a.splice(i, 1);
-            }
-        }
-
-        return a;
-    }
-
-
 
     // simple cache object
     // TODO - angular has this sorta stuff built in

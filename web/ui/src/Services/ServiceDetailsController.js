@@ -10,8 +10,6 @@
     function($scope, $q, $routeParams, $location, resourcesFactory, authService, $modalService, $translate, $notification, $timeout, servicesFactory, utils, hostsFactory){
         // Ensure logged in
         authService.checkLogin($scope);
-        $scope.name = "servicedetails";
-        $scope.params = $routeParams;
         $scope.resourcesFactory = resourcesFactory;
         $scope.hostsFactory = hostsFactory;
 
@@ -22,27 +20,10 @@
             });
         }
 
-        $scope.breadcrumbs = [
-            { label: 'breadcrumb_deployed', url: '#/apps' }
-        ];
-
-        $scope.vhosts = utils.buildTable('Name', [
-            { id: 'Name', name: 'vhost_name'},
-            { id: 'Application', name: 'vhost_application'},
-            { id: 'ServiceEndpoint', name: 'vhost_service_endpoint'},
-            { id: 'Name', name: 'vhost_url'}
-        ]);
-
-        $scope.ips = utils.buildTable('ServiceName', [
-            { id: 'ServiceName', name: 'tbl_virtual_ip_service'},
-            { id: 'AssignmentType', name: 'tbl_virtual_ip_assignment_type'},
-            { id: 'HostName', name: 'tbl_virtual_ip_host'},
-            { id: 'PoolID', name: 'tbl_virtual_ip_pool'},
-            { id: 'IPAddr', name: 'tbl_virtual_ip'}
-        ]);
-
         //add vhost data (includes name, app & service endpoint)
-        $scope.vhosts.add = {};
+        $scope.vhosts = {
+            add: {}
+        };
 
         $scope.click_app = function(id) {
             $location.path('/services/' + id);
@@ -161,7 +142,7 @@
                   }
                 }
 
-                //host ips
+                //virtual ips
                 if (data && data.VirtualIPs) {
                   for(i = 0; i < data.VirtualIPs.length; ++i) {
                     IPAddr = data.VirtualIPs[i].IP;
@@ -238,7 +219,9 @@
             var IP = $scope.ips.assign.value.IPAddr;
             return resourcesFactory.assignIP(serviceID, IP)
                 .success(function(data, status){
-                    servicesFactory.update();
+                    // HACK: update(true) forces a full update to
+                    // work around issue https://jira.zenoss.com/browse/CC-939
+                    servicesFactory.update(true);
                 });
         };
 
@@ -529,8 +512,8 @@
                         }
                     });
                 })
-                .error((data, status) => {
-                    this.createNotification("Unable to fetch logs", data.Detail).error();
+                .error(function(data, status){
+                    $notification.create("Unable to fetch logs", data.Detail).error();
                 });
         };
 
@@ -622,7 +605,7 @@
         };
 
         $scope.isIsvc = function(service){
-            return service.type === "isvc";
+            return service.isIsvc();
         };
 
         $scope.hasCurrentInstances = function(){
@@ -688,6 +671,58 @@
 
 
         function init(){
+            $scope.name = "servicedetails";
+            $scope.params = $routeParams;
+
+            $scope.breadcrumbs = [
+                { label: 'breadcrumb_deployed', url: '#/apps' }
+            ];
+
+            $scope.vhostsTable = {
+                sorting: {
+                    Name: "asc"
+                }
+            };
+            $scope.ipsTable = {
+                sorting: {
+                    ServiceName: "asc"
+                }
+            };
+            $scope.configTable = {
+                sorting: {
+                    Filename: "asc"
+                }
+            };
+            $scope.instancesTable = {
+                sorting: {
+                    "model.InstanceID": "asc"
+                },
+                // instead of watching for a change, always
+                // reload at a specified interval
+                watch: (function(){
+                    var last = new Date().getTime(),
+                        now,
+                        interval = 1000;
+
+                    return function(){
+                        now = new Date().getTime();
+                        if(now - last > interval){
+                            last = now;
+                            return now;
+                        }
+                    };
+                })()
+            };
+            $scope.scheduledTasksTable = {
+                sorting: {
+                    Schedule: "asc"
+                }
+            };
+
+            // servicesTable should not be sortable since it
+            // is a hierarchy.
+            $scope.servicesTable = {};
+
             // setup initial state
             $scope.services = {
                 data: servicesFactory.serviceTree,
@@ -695,15 +730,17 @@
                 current: servicesFactory.get($scope.params.serviceId)
             };
 
+            $scope.ips = {};
+
             // if the current service changes, update
             // various service controller thingies
-            $scope.$watch(function(){
+            $scope.$watch(function() {
                 // if no current service is set, try to set one
-                if(!$scope.services.current){
+                if(!$scope.services.current) {
                     $scope.services.current = servicesFactory.get($scope.params.serviceId);
                 }
 
-                if($scope.services.current){
+                if($scope.services.current) {
                     return $scope.services.current.isDirty();
                 } else {
                     // there is no current service
@@ -718,7 +755,7 @@
             servicesFactory.activate();
             servicesFactory.update();
 
-            $scope.$on("$destroy", function(){
+            $scope.$on("$destroy", function() {
                 servicesFactory.deactivate();
                 hostsFactory.deactivate();
             });

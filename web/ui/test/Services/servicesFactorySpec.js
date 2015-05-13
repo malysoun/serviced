@@ -29,16 +29,19 @@ describe('servicesFactory', function() {
 
     var serviceDefA = {
             ID: "123456",
-            Name: "Service A"
+            Name: "Service A",
+            RAMCommitment: "1024M",
         },
         serviceDefB = {
             ID: "123457",
-            Name: "Service B"
+            Name: "Service B",
+            RAMCommitment: "1024M",
         },
         serviceDefC = {
             ID: "123458",
             Name: "Service C",
-            ParentServiceID: "123457"
+            ParentServiceID: "123457",
+            RAMCommitment: "1024M",
         };
 
 
@@ -185,17 +188,6 @@ describe('servicesFactory', function() {
         expect(servicesFactory.get(serviceDefB.ID).children.length).toBe(1);
     });
 
-    it("Activates instancesFactory when activate is called", function(){
-        servicesFactory.activate();
-        expect(instancesFactory.activate).toHaveBeenCalled();
-    });
-
-    it("Deactivates instancesFactory when deactivate is called", function(){
-        servicesFactory.activate();
-        servicesFactory.deactivate();
-        expect(instancesFactory.deactivate).toHaveBeenCalled();
-    });
-
     it("Attaches service health to a service", function(){
         servicesFactory.update();
         var deferred = resourcesFactory._getCurrDeferred();
@@ -244,16 +236,19 @@ describe('servicesFactory Service object', function() {
 
     var serviceDefA = {
             ID: "isvc-123456",
-            Name: "Service A"
+            Name: "Service A",
+            RAMCommitment: "1024M",
         },
         serviceDefB = {
             ID: "123457",
-            Name: "Service B"
+            Name: "Service B",
+            RAMCommitment: "1024M",
         },
         serviceDefC = {
             ID: "123458",
             Name: "Service C",
-            ParentServiceID: "123457"
+            ParentServiceID: "123457",
+            RAMCommitment: "1024M",
         };
 
     // creates a service

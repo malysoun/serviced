@@ -44,15 +44,18 @@ type Monitor struct {
 
 	conn               client.Connection
 	storageClientsPath string
+
+	volumesPath string
 }
 
 // NewMonitor returns a Monitor object to monitor the exported file system
-func NewMonitor(driver StorageDriver, monitorInterval time.Duration) (*Monitor, error) {
+func NewMonitor(driver StorageDriver, monitorInterval time.Duration, volumesPath string) (*Monitor, error) {
 	m := &Monitor{
 		driver:          driver,
 		monitoredHosts:  make(map[string]bool),
 		shouldRestart:   getShouldRestartDFSOnFailure(),
 		monitorInterval: monitorInterval,
+		volumesPath:     volumesPath,
 	}
 
 	return m, nil
@@ -154,13 +157,26 @@ func (m *Monitor) DFSVolumeMonitorPollUpdateFunc(mountpoint, remoteIP string, ha
 }
 
 // MonitorVolume monitors the DFS volume - logs on failure and calls pollUpdateFunc
-func (m *Monitor) MonitorDFSVolume(mountpoint string, shutdown <-chan interface{}, pollUpdateFunc DFSVolumeMonitorPollUpdateFunc) {
+func (m *Monitor) MonitorDFSVolume(mountpoint string, leaderIP string, checkValue string, shutdown <-chan interface{}, pollUpdateFunc DFSVolumeMonitorPollUpdateFunc) {
 	glog.Infof("monitoring DFS export info for DFS volume %s at polling interval: %s", mountpoint, m.monitorInterval)
 
 	m.previousRestart = time.Now()
 
+	volumesMonitorPath := path.Join(m.volumesPath, monitorSubDir)
+	os.RemoveAll(volumesMonitorPath)
+	if err := os.MkdirAll(volumesMonitorPath, 0755); err != nil {
+		glog.Errorf("no longer monitoring status for DFS volume %s - unable to mkdir %+v: %s", mountpoint, volumesMonitorPath, err)
+		return
+	}
+
+	checkFileName := path.Join(volumesMonitorPath, leaderIP+"-fsid.txt")
+	glog.Infof("Writing checkValue of %s to file %s", checkValue, checkFileName)
+	if err := ioutil.WriteFile(checkFileName, []byte(checkValue), 0644); err != nil {
+		glog.Errorf("no longer monitoring status for DFS volume %s - unable to write checkfile  %+v: %s", mountpoint, checkFileName, err)
+		return
+	}
+
 	monitorPath := path.Join(mountpoint, monitorSubDir)
-	os.RemoveAll(monitorPath)
 	if err := os.MkdirAll(monitorPath, 0755); err != nil {
 		glog.Errorf("no longer monitoring status for DFS volume %s - unable to mkdir %+v: %s", mountpoint, monitorPath, err)
 		return

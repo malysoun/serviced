@@ -77,7 +77,7 @@ type PoolAPITest struct {
 }
 
 func InitPoolAPITest(args ...string) {
-	New(DefaultPoolAPITest).Run(args)
+	New(DefaultPoolAPITest, TestConfigReader(make(map[string]string))).Run(args)
 }
 
 func (t PoolAPITest) GetResourcePools() ([]pool.ResourcePool, error) {
@@ -347,7 +347,8 @@ func ExampleServicedCLI_CmdPoolListIPs_usage() {
 	//    serviced pool list-ips POOLID
 	//
 	// OPTIONS:
-	//    --verbose, -v	Show JSON format
+	//    --verbose, -v				Show JSON format
+	//    --show-fields 'InterfaceName,IPAddress,Type'	Comma-delimited list describing which fields to display
 }
 
 func ExampleServicedCLI_CmdPoolListIPs_fail() {

@@ -19,6 +19,7 @@ import (
 	"io/ioutil"
 	"os"
 	"path"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -66,7 +67,7 @@ func TestMonitorVolume(t *testing.T) {
 	}
 
 	// ---- start monitor
-	monitor, err := NewMonitor(driver, time.Duration(3*time.Second))
+	monitor, err := NewMonitor(driver, time.Duration(3*time.Second), tmpPath)
 	if err != nil {
 		t.Fatalf("unable to create new monitor %s", err)
 	}
@@ -82,7 +83,9 @@ func TestMonitorVolume(t *testing.T) {
 		}
 	}
 
-	go monitor.MonitorDFSVolume(tmpPath, shutdown, pDFSVolumeMonitorPollUpdateFunc)
+	exportTime := strconv.FormatInt(time.Now().UnixNano(), 16)
+
+	go monitor.MonitorDFSVolume(tmpPath, "1.2.3.4", exportTime, shutdown, pDFSVolumeMonitorPollUpdateFunc)
 
 	time.Sleep(time.Second * 2)
 

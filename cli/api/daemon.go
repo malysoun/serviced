@@ -66,6 +66,7 @@ import (
 	"os/signal"
 	"path"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -402,7 +403,7 @@ func (d *daemon) startMaster() error {
 		rpcPort = parts[1]
 	}
 
-	thisHost, err := host.Build(agentIP, rpcPort, d.masterPoolID)
+	thisHost, err := host.Build(agentIP, rpcPort, d.masterPoolID, "")
 	if err != nil {
 		glog.Errorf("could not build host for agent IP %s: %v", agentIP, err)
 		return err
@@ -413,10 +414,11 @@ func (d *daemon) startMaster() error {
 		return err
 	}
 
-	if nfsDriver, err := nfs.NewServer(path.Join(options.VarPath, "volumes"), "serviced_var_volumes", "0.0.0.0/0"); err != nil {
+	volumesPath := path.Join(options.VarPath, "volumes")
+	if nfsDriver, err := nfs.NewServer(volumesPath, "serviced_var_volumes", "0.0.0.0/0"); err != nil {
 		return err
 	} else {
-		d.storageHandler, err = storage.NewServer(nfsDriver, thisHost)
+		d.storageHandler, err = storage.NewServer(nfsDriver, thisHost, volumesPath)
 		if err != nil {
 			return err
 		}
@@ -495,7 +497,7 @@ func (d *daemon) startAgent() error {
 		rpcPort = parts[1]
 	}
 
-	thisHost, err := host.Build(agentIP, rpcPort, "unknown")
+	thisHost, err := host.Build(agentIP, rpcPort, "unknown", "")
 	if err != nil {
 		panic(err)
 	}
@@ -739,7 +741,11 @@ func (d *daemon) initISVCS() error {
 
 func (d *daemon) initDAO() (dao.ControlPlane, error) {
 	dfsTimeout := time.Duration(options.MaxDFSTimeout) * time.Second
-	return elasticsearch.NewControlSvc("localhost", 9200, d.facade, options.VarPath, options.FSType, dfsTimeout, dockerRegistry)
+	rpcPortInt, err := strconv.Atoi(options.RPCPort)
+	if err != nil {
+		return nil, err
+	}
+	return elasticsearch.NewControlSvc("localhost", 9200, d.facade, options.VarPath, options.FSType, rpcPortInt, dfsTimeout, dockerRegistry)
 }
 
 func (d *daemon) initWeb() {
@@ -752,8 +758,9 @@ func (d *daemon) initWeb() {
 
 func (d *daemon) initDFS() error {
 	if options.FSType == "btrfs" {
-		if err := btrfs.IsBtrfsFilesystem(options.VarPath); err != nil {
-			return fmt.Errorf("varpath at %s is not a btrfs filesystem\n%s", options.VarPath, err)
+		volumesPath := path.Join(options.VarPath, "volumes")
+		if err := btrfs.IsBtrfsFilesystem(volumesPath); err != nil {
+			return fmt.Errorf("volumes path at %s is not a btrfs filesystem\n%s", volumesPath, err)
 		}
 	}
 	return nil

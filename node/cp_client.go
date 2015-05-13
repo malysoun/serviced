@@ -26,6 +26,7 @@ import (
 	"github.com/control-center/serviced/domain/servicestate"
 	"github.com/control-center/serviced/domain/servicetemplate"
 	"github.com/control-center/serviced/domain/user"
+	"github.com/control-center/serviced/metrics"
 	"github.com/control-center/serviced/rpc/rpcutils"
 	"github.com/control-center/serviced/volume"
 )
@@ -96,8 +97,16 @@ func (s *ControlClient) UpdateService(service service.Service, unused *int) (err
 	return s.rpcClient.Call("ControlPlane.UpdateService", service, unused)
 }
 
-func (s *ControlClient) MigrateService(request dao.ServiceMigrationRequest, unused *int) (err error) {
-	return s.rpcClient.Call("ControlPlane.MigrateService", request, unused)
+func (s *ControlClient) RunMigrationScript(request dao.RunMigrationScriptRequest, unused *int) (err error) {
+	return s.rpcClient.Call("ControlPlane.RunMigrationScript", request, unused)
+}
+
+func (s *ControlClient) MigrateServices(request dao.ServiceMigrationRequest, unused *int) (err error) {
+	return s.rpcClient.Call("ControlPlane.MigrateServices", request, unused)
+}
+
+func (s *ControlClient) GetServiceList(serviceID string, services *[]service.Service) (err error) {
+	return s.rpcClient.Call("ControlPlane.GetServiceList", serviceID, services)
 }
 
 func (s *ControlClient) RemoveService(serviceId string, unused *int) (err error) {
@@ -280,6 +289,22 @@ func (s *ControlClient) Action(req dao.AttachRequest, unused *int) error {
 	return s.rpcClient.Call("ControlPlane.Action", req, unused)
 }
 
+func (s *ControlClient) GetHostMemoryStats(req dao.MetricRequest, stats *metrics.MemoryUsageStats) error {
+	return s.rpcClient.Call("ControlPlane.GetHostMemoryStats", req, stats)
+}
+
+func (s *ControlClient) GetServiceMemoryStats(req dao.MetricRequest, stats *metrics.MemoryUsageStats) error {
+	return s.rpcClient.Call("ControlPlane.GetServiceMemoryStats", req, stats)
+}
+
+func (s *ControlClient) GetInstanceMemoryStats(req dao.MetricRequest, stats *[]metrics.MemoryUsageStats) error {
+	return s.rpcClient.Call("ControlPlane.GetInstanceMemoryStats", req, stats)
+}
+
 func (s *ControlClient) LogHealthCheck(result domain.HealthCheckResult, unused *int) error {
 	return s.rpcClient.Call("ControlPlane.LogHealthCheck", result, unused)
+}
+
+func (s *ControlClient) ServicedHealthCheck(IServiceNames []string, results *[]dao.IServiceHealthResult) error {
+	return s.rpcClient.Call("ControlPlane.ServicedHealthCheck", IServiceNames, results)
 }

@@ -14,6 +14,8 @@
 package test
 
 import (
+	"unsafe"
+
 	"github.com/control-center/serviced/dao"
 	"github.com/control-center/serviced/domain"
 	"github.com/control-center/serviced/domain/addressassignment"
@@ -21,8 +23,8 @@ import (
 	"github.com/control-center/serviced/domain/servicestate"
 	"github.com/control-center/serviced/domain/servicetemplate"
 	"github.com/control-center/serviced/domain/user"
+	"github.com/control-center/serviced/metrics"
 	"github.com/control-center/serviced/volume"
-	"unsafe"
 
 	"github.com/stretchr/testify/mock"
 )
@@ -102,8 +104,13 @@ func (mcp *MockControlPlane) UpdateService(service service.Service, unused *int)
 	return mcp.Mock.Called(service, unused).Error(0)
 }
 
+// Run a migration script
+func (mcp *MockControlPlane) RunMigrationScript(request dao.RunMigrationScriptRequest, unused *int) error {
+	return mcp.Mock.Called(request, unused).Error(0)
+}
+
 // Migrate a service definition
-func (mcp *MockControlPlane) MigrateService(request dao.ServiceMigrationRequest, unused *int) error {
+func (mcp *MockControlPlane) MigrateServices(request dao.ServiceMigrationRequest, unused *int) error {
 	return mcp.Mock.Called(request, unused).Error(0)
 }
 
@@ -361,4 +368,23 @@ func (mcp *MockControlPlane) AsyncRestore(filename string, unused *int) error {
 // BackupStatus monitors the status of a backup or restore
 func (mcp *MockControlPlane) BackupStatus(unused int, status *string) error {
 	return mcp.Mock.Called(unused, status).Error(0)
+}
+
+// GetHostMemoryStats returns the memory stats of a host
+func (mcp *MockControlPlane) GetHostMemoryStats(req dao.MetricRequest, stats *metrics.MemoryUsageStats) error {
+	return mcp.Mock.Called(req, stats).Error(0)
+}
+
+// GetHostMemoryStats returns the memory stats of a service
+func (mcp *MockControlPlane) GetServiceMemoryStats(req dao.MetricRequest, stats *metrics.MemoryUsageStats) error {
+	return mcp.Mock.Called(req, stats).Error(0)
+}
+
+// GetHostMemoryStats returns the memory stats of service instances
+func (mcp *MockControlPlane) GetInstanceMemoryStats(req dao.MetricRequest, stats *[]metrics.MemoryUsageStats) error {
+	return mcp.Mock.Called(req, stats).Error(0)
+}
+
+func (mcp *MockControlPlane) ServicedHealthCheck(IServiceNames []string, results *[]dao.IServiceHealthResult) error {
+	return mcp.Mock.Called(IServiceNames, results).Error(0)
 }

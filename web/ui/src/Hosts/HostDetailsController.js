@@ -6,8 +6,8 @@
 (function() {
     'use strict';
 
-    controlplane.controller("HostDetailsController", ["$scope", "$routeParams", "$location", "resourcesFactory", "authService", "$modalService", "$translate", "miscUtils", "hostsFactory", "$notification", "instancesFactory",
-    function($scope, $routeParams, $location, resourcesFactory, authService, $modalService, $translate, utils, hostsFactory, $notification, instancesFactory){
+    controlplane.controller("HostDetailsController", ["$scope", "$routeParams", "$location", "resourcesFactory", "authService", "$modalService", "$translate", "miscUtils", "hostsFactory", "$notification", "instancesFactory", "servicesFactory",
+    function($scope, $routeParams, $location, resourcesFactory, authService, $modalService, $translate, utils, hostsFactory, $notification, instancesFactory, servicesFactory){
         // Ensure logged in
         authService.checkLogin($scope);
 
@@ -17,18 +17,6 @@
         $scope.breadcrumbs = [
             { label: 'breadcrumb_hosts', url: '#/hosts' }
         ];
-
-        $scope.running = utils.buildTable('Name', [
-            { id: 'Name', name: 'label_service' },
-            { id: 'StartedAt', name: 'running_tbl_start' },
-            { id: 'View', name: 'running_tbl_actions' }
-        ]);
-
-        $scope.ip_addresses = utils.buildTable('Interface', [
-            { id: 'Interface', name: 'ip_addresses_interface' },
-            { id: 'Ip', name: 'ip_addresses_ip' },
-            { id: 'MAC Address', name: 'ip_addresses_mac' }
-        ]);
 
         $scope.viewLog = function(instance) {
             $scope.editService = angular.copy(instance);
@@ -87,9 +75,27 @@
         function init(){
             // start polling
             hostsFactory.activate();
-            instancesFactory.activate();
+            servicesFactory.activate();
+            servicesFactory.update();
 
-            instancesFactory.update();
+            $scope.ipsTable = {
+                sorting: {
+                    InterfaceName: "asc"
+                },
+                watch: function(){
+                    return hostsFactory.lastUpdate;
+                }
+            };
+
+            $scope.instancesTable = {
+                sorting: {
+                    name: "asc"
+                },
+                watch: function(){
+                    return instancesFactory.lastUpdate;
+                }
+            };
+
 
             // kick off hostsFactory updating
             // TODO - update loop here
@@ -98,11 +104,12 @@
                     $scope.currentHost = hostsFactory.get($scope.params.hostId);
                     $scope.breadcrumbs.push({ label: $scope.currentHost.name, itemClass: 'active' });
                 });
+
         }
 
         $scope.$on("$destroy", function(){
             hostsFactory.deactivate();
-            instancesFactory.deactivate();
+            servicesFactory.deactivate();
         });
     }]);
 })();
