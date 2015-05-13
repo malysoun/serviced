@@ -89,6 +89,7 @@ func (s *Scheduler) start(conn client.Connection) error {
 		}
 
 		if realm != pool.Realm {
+			realm = pool.Realm
 			close(cancel)
 			s.threads.Wait()
 			cancel = make(chan struct{})
@@ -99,7 +100,6 @@ func (s *Scheduler) start(conn client.Connection) error {
 					s.manage(cancel, conn, realm, s.managers[i])
 				}()
 			}
-			realm = pool.Realm
 		}
 
 		select {
@@ -121,11 +121,6 @@ func (s *Scheduler) manage(cancel <-chan struct, conn client.Connection, realm s
 
 	for {
 		ev, err := leader.TakeLead()
-		if err != nil {
-			glog.Errorf("Host %s could not become the leader (%s): %s", s.hostID, manager.Leader(), err)
-			continue
-		}
-
 		select {
 		case <-cancel:
 			// did I shutdown before I became the leader?
@@ -133,6 +128,10 @@ func (s *Scheduler) manage(cancel <-chan struct, conn client.Connection, realm s
 			return
 		default:
 			// TODO: make sure the realm of the other managers coincides with this realm
+			if err != nil {
+				glog.Errorf("Host %s could not become the leader (%s): %s", s.hostID, manager.Leader(), err)
+				continue
+			}
 		}
 
 		go func() {
