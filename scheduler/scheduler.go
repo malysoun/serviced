@@ -111,15 +111,16 @@ func (s *Scheduler) start(conn client.Connection) error {
 }
 
 func (s *Scheduler) manage(cancel <-chan struct, conn client.Connection, realm string, manager Manager) {
+	var _cancel chan struct{}
+
 	leader := AddMaster(conn, s.hostID, realm, manager.Leader())
-	defer leader.ReleaseLead()
-
-	_cancel := make(chan struct{})
-	defer close(cancel)
-
 	done := make(chan struct{})
 
 	for {
+		_cancel = make(chan struct{})
+
+		// TODO: need to make sure all masters using the same zk is using the 
+		// same pool
 		ev, err := leader.TakeLead()
 		select {
 		case <-cancel:
@@ -149,7 +150,11 @@ func (s *Scheduler) manage(cancel <-chan struct, conn client.Connection, realm s
 			leader.ReleaseLead()
 		case <-ev:
 			glog.Warningf("Host %s lost lead, reconnecting", s.hostID)
+			close(_cancel)
+			<-done
 		case <-cancel:
+			leader.ReleaseLead()
+			close(_cancel)
 			return
 		}
 	}
