@@ -13,7 +13,30 @@
 
 package scheduler
 
-import "github.com/zenoss/glog"
+import (
+	"fmt"
+	"path"
+	"strings"
+
+	"github.com/control-center/serviced/coordinator/client"
+	"github.com/zenoss/glog"
+)
+
+type SyncError []error
+
+func (errs SyncError) HasError() bool { return len(errs) }
+
+func (errs SyncError) Error() string {
+	if !errs.HasError() {
+		return ""
+	}
+
+	errstr := make([]string, len(errs))
+	for i, err := range errs {
+		errstr[i] = err.Error()
+	}
+	return fmt.Sprintf("receieved %d errors: \n\t%s", len(errs), strings.Join(errstr, "\n\t"))
+}
 
 // Synchronizer is an interface type for synchronizing data
 type Synchronizer interface {
@@ -64,7 +87,7 @@ func Sync(s Synchronizer) error {
 	return nil
 }
 
-func SyncW(s Synchronizer, shutdown <-chan struct{}, conn client.Connection, rootpath string) {
+func SyncW(shutdown <-chan struct{}, s Synchronizer, conn client.Connection, rootpath string) {
 	for {
 		ids, ev, err := conn.ChildrenW(rootpath)
 		if err != nil {
@@ -98,10 +121,8 @@ func SyncW(s Synchronizer, shutdown <-chan struct{}, conn client.Connection, roo
 					case <-shutdown:
 						return
 					}
-
 				}
-
-			}
+			}(id)
 		}
 	}
 }

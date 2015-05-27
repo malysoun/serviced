@@ -1,4 +1,4 @@
-// Copyright 2014 The Serviced Authors.
+// Copyright 2015 The Serviced Authors.
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -13,63 +13,66 @@
 package scheduler
 
 import (
-	"fmt"
-	"strings"
-
+	"github.com/control-center/serviced/coordinator/client"
+	"github.com/control-center/serviced/domain/host"
+	"github.com/control-center/serviced/domain/service"
 	zkservice "github.com/control-center/serviced/zzk/service"
 	zkvirtualips "github.com/control-center/serviced/zzk/virtualips"
 	"github.com/zenoss/glog"
 )
 
-type SyncError []error
-
-func (errs SyncError) HasError() bool { return len(errs) }
-
-func (errs SyncError) Error() string {
-	if !errs.HasError() {
-		return ""
-	}
-
-	errstr := make([]string, len(errs))
-	for i, err := range errs {
-		errstr[i] = err.Error()
-	}
-	return fmt.Sprintf("receieved %d errors: \n\t%s", len(errs), strings.Join(errstr, "\n\t"))
+// LocalSync is the scheduler manager for local data synchronization
+type LocalSync struct {
+	cpclient dao.ControlClient
+	conn     client.Connection
 }
 
-func (m *ResourceManager) syncLocal() error {
+// NewLocalSync initializes a new local sync manager
+func NewLocalSync(cpclient dao.ControlClient, conn client.Connection) *LocalSync {
+	return &LocalSync{cpclient, conn}
+}
+
+// Leader is the path to the leader node
+func (m *LocalSync) Leader() string {
+	return "/managers/sync/local"
+}
+
+// Run starts the local sync manager
+func (m *LocalSync) Run(cancel <-chan struct{}, realm string) {
 	var syncerr SyncError
 
-	pools, err := m.f.GetResourcePools(m.ctx)
-	if err != nil {
+	var pools []pool.ResourcePools
+	if err := m.cpclient.GetResourcePools(dao.EntityRequest{}, &pools); err != nil {
 		glog.Errorf("Could not get resource pools: %s", err)
 		return err
-	} else if err := Synchronize(zkservice.NewPoolSync(m.lconn, pools)); err != nil {
+	} else if Sync(zkservice.NewPoolSync(m.conn, pools)); err != nil {
 		glog.Errorf("Could not synchronize resource pools: %s", err)
 		syncerr = append(syncerr, err)
 	}
 
 	for _, pool := range pools {
 		// update the virtual ips
-		if err := Synchronize(zkvirtualips.NewVIPSync(m.lconn, pool.ID, pool.VirtualIPs)); err != nil {
+		if err := Sync(zkvirtualips.NewVIPSync(m.conn, pool.ID, pool.VirtualIPs)); err != nil {
 			glog.Errorf("Could not synchronize virtual ips in pool %s: %s", pool.ID, err)
 			syncerr = append(syncerr, err)
 		}
 
 		// update the hosts
-		if hosts, err := m.f.FindHostsInPool(m.ctx, pool.ID); err != nil {
+		var hosts []host.Host
+		if err := m.cpclient.GetHosts(dao.HostRequest{PoolID: pool.ID}, &hosts); err != nil {
 			glog.Errorf("Could not get hosts in pool %s: %s", pool.ID, err)
 			syncerr = append(syncerr, err)
-		} else if err := Synchronize(zkservice.NewHostSync(m.lconn, pool.ID, hosts)); err != nil {
+		} else if err := Sync(zkservice.NewHostSync(m.conn, pool.ID, hosts)); err != nil {
 			glog.Errorf("Could not synchronize hosts in pool %s: %s", pool.ID, err)
 			syncerr = append(syncerr, err)
 		}
 
 		// update the services
-		if services, err := m.f.GetServicesByPool(m.ctx, pool.ID); err != nil {
+		var svcs []service.Service
+		if err := m.cpclient.GetServices(dao.ServiceRequest{PoolID: pool.ID}, &svcs); err != nil {
 			glog.Errorf("Could not get services in pool %s: %s", pool.ID, err)
 			syncerr = append(syncerr, err)
-		} else if err := Synchronize(zkservice.NewServiceSync(m.lconn, pool.ID, services)); err != nil {
+		} else if err := Sync(zkservice.NewServiceSync(m.conn, pool.ID, &svcs)); err != nil {
 			glog.Errorf("Could not synchronize services in pool %s: %s", pool.ID, err)
 			syncerr = append(syncerr, err)
 		}

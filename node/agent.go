@@ -265,47 +265,6 @@ func (a *HostAgent) StopService(state *servicestate.ServiceState) error {
 	return ctr.Stop(45 * time.Second)
 }
 
-// reapContainers purges old containers from docker.  It looks at the
-// containers' finish time in order to determine the time of the next purge
-func reapContainers(shutdown <-chan interface{}, minInterval, maxAge time.Duration) {
-	for {
-		var expiration time.Time
-
-		waitTimeout := maxAge // time to wait for the next container to be purged
-		ctrs, err := docker.Containers()
-		if err != nil {
-			glog.Errorf("Could not look up containers: %s", err)
-			waitTimeout = minInterval
-			goto wait
-		}
-
-		expiration = time.Now().Add(-maxAge)
-		for _, ctr := range ctrs {
-			if finishTime := ctr.State.FinishedAt; finishTime.Unix() <= 0 || ctr.IsRunning() {
-				// container is still running or hasn't started, skip
-				continue
-			} else if timeToLive := expiration.Sub(finishTime); timeToLive <= 0 {
-				// container has exceeded its expiration date
-				if err := ctr.Delete(true); err != nil {
-					glog.Errorf("Could not delete container %s (%s): %s", ctr.Name, ctr.ID, err)
-					waitTimeout = minInterval
-				}
-			} else if timeToLive < waitTimeout {
-				// set the time of next purge to the expiration date of oldest unpurged container
-				waitTimeout = timeToLive
-			}
-		}
-
-	wait:
-		glog.Infof("Next container purge: %s", waitTimeout)
-		select {
-		case <-time.After(waitTimeout):
-		case <-shutdown:
-			return
-		}
-	}
-}
-
 // Get the state of the docker container given the dockerId
 func getDockerState(dockerID string) (*docker.Container, error) {
 	glog.V(1).Infof("Inspecting container: %s", dockerID)
@@ -790,8 +749,37 @@ func (a *HostAgent) setupVolume(tenantID string, service *service.Service, volum
 	return resourcePath, nil
 }
 
+// DockerTTL is the ttl manager for stale docker containers
+type DockerTTL struct{}
+
+func (ttl DockerTTL) Purge(age time.Duration) (time.Duration, error) {
+	expire := time.Now().Add(-age)
+
+	ctrs, err := docker.Containers()
+	if err != nil {
+		glog.Errorf("Could not look up containers: %s", err)
+		return 0, err
+	}
+	for _, ctr := range ctrs {
+		if finishTime := ctr.State.FinishedAt; finishTime.Unix() <= 0 || ctr.IsRunning() {
+			// container is still running or hasn't started, skip
+			continue
+		} else if timeToLive := expire.Sub(finishTime); timeToLive <= 0 {
+			// container has exceeded its expiration date
+			if err := ctr.Delete(true); err != nil {
+				glog.Errorf("Could not delete container %s (%s): %s", ctr.Name, ctr.ID, err)
+				return 0, err
+			}
+		} else if timeToLive < age {
+			age = timeToLive
+		}
+	}
+
+	return age, nil
+}
+
 // main loop of the HostAgent
-func (a *HostAgent) Start(shutdown <-chan interface{}) {
+func (a *HostAgent) Start(shutdown <-chan struct{}) {
 	glog.Info("Starting HostAgent")
 
 	var wg sync.WaitGroup
@@ -804,7 +792,7 @@ func (a *HostAgent) Start(shutdown <-chan interface{}) {
 	wg.Add(1)
 	go func() {
 		glog.Info("reapOldContainersLoop starting")
-		reapContainers(shutdown, time.Minute, a.maxContainerAge)
+		utils.RunTTL(shutdown, make(DockerTTL), time.Minute, a.maxContainerAge)
 		glog.Info("reapOldContainersLoop Done")
 		wg.Done()
 	}()
