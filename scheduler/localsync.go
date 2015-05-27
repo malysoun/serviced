@@ -13,9 +13,12 @@
 package scheduler
 
 import (
+	"time"
+
 	"github.com/control-center/serviced/coordinator/client"
 	"github.com/control-center/serviced/domain/host"
 	"github.com/control-center/serviced/domain/service"
+	"github.com/control-center/serviced/utils"
 	zkservice "github.com/control-center/serviced/zzk/service"
 	zkvirtualips "github.com/control-center/serviced/zzk/virtualips"
 	"github.com/zenoss/glog"
@@ -39,6 +42,11 @@ func (m *LocalSync) Leader() string {
 
 // Run starts the local sync manager
 func (m *LocalSync) Run(cancel <-chan struct{}, realm string) {
+	utils.RunTTL(cancel, m, 30*time.Second, 3*time.Hour)
+}
+
+// Purge performs the synchronization
+func (m *LocalSync) Purge(age time.Duration) (time.Duration, error) {
 	var syncerr SyncError
 
 	var pools []pool.ResourcePools
@@ -82,5 +90,5 @@ func (m *LocalSync) Run(cancel <-chan struct{}, realm string) {
 		return syncerr
 	}
 
-	return nil
+	return age, nil
 }
