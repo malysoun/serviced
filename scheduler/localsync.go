@@ -87,7 +87,7 @@ func (m *LocalSync) Purge(age time.Duration) (time.Duration, error) {
 	}
 
 	if syncerr.HasError() {
-		return syncerr
+		return 0, syncerr
 	}
 
 	return age, nil
