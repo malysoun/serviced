@@ -38,7 +38,7 @@ func (ttl *SnapshotTTL) Leader() string {
 }
 
 // Run runs the ttl
-func (ttl *SnapshotTTL) Run(cancel chan<- struct{}, realm string) {
+func (ttl *SnapshotTTL) Run(cancel <-chan struct{}, realm string) {
 	glog.Infof("Starting snapshot ttl")
 	utils.RunTTL(cancel, ttl, 10*time.Minute, ttl.maxAge)
 }
