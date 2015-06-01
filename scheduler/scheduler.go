@@ -15,58 +15,52 @@ package scheduler
 
 import (
 	"sync"
+	"time"
 
-	coordclient "github.com/control-center/serviced/coordinator/client"
-	"github.com/control-center/serviced/coordinator/storage"
-	"github.com/control-center/serviced/dao"
-	"github.com/control-center/serviced/datastore"
-	"github.com/control-center/serviced/facade"
+	"github.com/control-center/serviced/coordinator/client"
 	"github.com/control-center/serviced/zzk"
-	"github.com/control-center/serviced/zzk/registry"
-	zkservice "github.com/control-center/serviced/zzk/service"
 	"github.com/zenoss/glog"
-
-	"path"
 )
 
-
-type Manager interface{
+type Manager interface {
 	Run(cancel <-chan struct{}, hostID, realm string)
 	Leader() string
 }
 
 type Scheduler struct {
 	shutdown chan struct{}
-	threads sync.WaitGroup
-	poolID string
-	hostID string
+	threads  sync.WaitGroup
+	realmID  string
+	hostID   string
 	managers []Manager
 }
 
-func StartScheduler(poolID, hostID string, managers ...Manager) *Scheduler {
+func StartScheduler(realmID, hostID string, managers ...Manager) *Scheduler {
 	scheduler := &Scheduler{
 		shutdown: make(chan struct{}),
-		threads: sync.WaitGroup{},
-		poolID: poolID,
-		hostID: hostID,
+		threads:  sync.WaitGroup{},
+		realmID:  realmID,
+		hostID:   hostID,
 		managers: managers,
 	}
 
 	go func() {
 		for {
+			var conn client.Connection
 			select {
-			case conn := <-zzk.Connect("/", zzk.GetLocalConnection):
+			case conn = <-zzk.Connect("/", zzk.GetLocalConnection):
 				if conn != nil {
-					if err := s.start(conn); err != nil {
-						// prevent this method from spinning
-						time.Sleep(5 * time.Second)
-						glog.Warningf("Restarting master %s for pool %s", hostID, poolID)
-					} else {
-						return
-					}
+					scheduler.start(conn)
+					scheduler.threads.Wait()
 				}
-			case <-s.shutdown:
+			case <-scheduler.shutdown:
 				return
+			}
+
+			select {
+			case <-scheduler.shutdown:
+				return
+			default:
 			}
 		}
 	}()
@@ -74,96 +68,83 @@ func StartScheduler(poolID, hostID string, managers ...Manager) *Scheduler {
 	return scheduler
 }
 
-func (s *Scheduler) start(conn client.Connection) error {
-	cancel := make(chan struct{})
-	defer close(cancel)
-
-	realm := ""
-	for {
-		// Find the resource pool where this master is running
-		var pool pool.ResourcePool
-		ev, err := conn.GetW(path.Join("/pools", s.poolID), &zkservice.PoolNode{ResourcePool: &pool})
-		if err != nil {
-			glog.Errorf("Could not look up pool %s for master %s: %s", s.poolID, s.hostID, err)
-			return err
-		}
-
-		if realm != pool.Realm {
-			realm = pool.Realm
-			close(cancel)
-			s.threads.Wait()
-			cancel = make(chan struct{})
-			for i := range s.managers {
-				s.threads.Add(1)
-				go func() {
-					defer s.threads.Done()
-					s.manage(cancel, conn, realm, s.managers[i])
-				}()
-			}
-		}
-
-		select {
-		case <-ev:
-		case <-s.shutdown:
-			return nil
-		}
-	}
-}
-
-func (s *Scheduler) manage(cancel <-chan struct, conn client.Connection, realm string, manager Manager) {
-	var _cancel chan struct{}
-
-	leader := AddMaster(conn, s.hostID, realm, manager.Leader())
-	done := make(chan struct{})
-
-	for {
-		_cancel = make(chan struct{})
-
-		// TODO: need to make sure all masters using the same zk is using the 
-		// same pool
-		ev, err := leader.TakeLead()
-		select {
-		case <-cancel:
-			// did I shutdown before I became the leader?
-			glog.Infof("Stopping manager for %s (%s)", s.hostID, manager.Leader())
-			return
-		default:
-			// TODO: make sure the realm of the other managers coincides with this realm
-			if err != nil {
-				glog.Errorf("Host %s could not become the leader (%s): %s", s.hostID, manager.Leader(), err)
-				continue
-			}
-		}
-
-		go func() {
-			if err := manager.Run(_cancel, s.hostID, realm); err != nil {
-				glog.Warningf("Manager for host %s exiting: %s", s.hostID, err)
-				time.Sleep(5 * time.Second)
-				done <- struct{}{}
-				return
-			}
-		}()
-
-		select {
-		case <-done:
-			glog.Warningf("Host %s exited unexpectedly, reconnecting", s.hostID)
-			leader.ReleaseLead()
-		case <-ev:
-			glog.Warningf("Host %s lost lead, reconnecting", s.hostID)
-			close(_cancel)
-			select {
-			case <-done:
-				case <-time.After(
-			<-done
-		case <-cancel:
-			leader.ReleaseLead()
-			close(_cancel)
-			return
-		}
-	}
-}
-
 func (s *Scheduler) Stop() {
 	close(s.shutdown)
 	s.threads.Wait()
+}
+
+func (s *Scheduler) start(conn client.Connection) error {
+	for i := range s.managers {
+		s.threads.Add(1)
+		go func() {
+			defer s.threads.Done()
+			s.manage(conn, s.managers[i])
+		}()
+	}
+}
+
+func (s *Scheduler) manage(conn client.Connection, manager Manager) {
+	leader := AddLeader(conn, s.hostID, s.realmID, manager.Leader())
+
+	for {
+		done := make(chan struct{}, 2)
+
+		// become the leader
+		ready := make(chan struct{})
+		go func() {
+			ev, err := leader.TakeLead()
+
+			// send ready signal or quit
+			select {
+			case ready <- err:
+				if err != nil {
+					return
+				}
+			case <-s.shutdown:
+				leader.ReleaseLead()
+				return
+			}
+
+			// wait for exit
+			<-ev
+			done <- struct{}{}
+		}()
+
+		// waiting for leader to be ready
+		select {
+		case err := <-ready:
+			if err != nil {
+				glog.Errorf("Host %s could not become the leader (%s): %s", s.hostID, manager.Leader(), err)
+				return
+			}
+		case <-s.shutdown:
+			// Did I shutdown before I became the leader?
+			glog.Infof("Stopping manager for %s (%s)", s.hostID, manager.Leader())
+			return
+		}
+
+		// start the manager
+		cancel := make(chan struct{})
+		go func() {
+			if err := manager.Run(cancel, s.hostID, realm); err != nil {
+				glog.Warningf("Manager for host %s exiting: %s", s.hostID, err)
+				time.Sleep(5 * time.Second)
+			}
+			done <- struct{}{}
+		}()
+
+		// waiting for something to happen
+		select {
+		case <-done:
+			glog.Warningf("Host %s exited unexpectedly, reconnecting", s.hostID)
+			close(cancel)
+			leader.ReleaseLead()
+			<-done
+		case <-s.shutdown:
+			glog.Infof("Host %s receieved signal to shutdown", s.hostID)
+			close(cancel)
+			leader.ReleaseLead()
+			return
+		}
+	}
 }

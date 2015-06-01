@@ -38,9 +38,10 @@ func (ttl *SnapshotTTL) Leader() string {
 }
 
 // Run runs the ttl
-func (ttl *SnapshotTTL) Run(cancel <-chan struct{}, realm string) {
+func (ttl *SnapshotTTL) Run(cancel <-chan struct{}, realm string) error {
 	glog.Infof("Starting snapshot ttl")
 	utils.RunTTL(cancel, ttl, 10*time.Minute, ttl.maxAge)
+	return nil
 }
 
 // Purge deletes snapshots based on age and rechecks based on the age of the

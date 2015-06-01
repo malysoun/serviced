@@ -52,13 +52,13 @@ func (m *ResourceManager) Leader() string {
 }
 
 // Run starts the resource manager
-func (m *ResourceManager) Run(cancel <-chan struct{}, realm string) {
+func (m *ResourceManager) Run(cancel <-chan struct{}, realm string) error {
 	glog.Infof("Processing resource manager duties")
 
 	// set up the host registry
 	if err := zkservice.InitHostRegistry(conn); err != nil {
 		glog.Errorf("Could not initialize host registry for pool %s: %s", m.poolID, err)
-		return
+		return err
 	}
 	m.hostreg = zkservice.NewHostRegistryListener()
 
