@@ -23,23 +23,21 @@ import (
 )
 
 type Manager interface {
-	Run(cancel <-chan struct{}, hostID, realm string)
-	Leader() string
+	Run(cancel <-chan struct{}) error
+	Leader() (string, client.Node)
 }
 
 type Scheduler struct {
 	shutdown chan struct{}
 	threads  sync.WaitGroup
-	realmID  string
 	hostID   string
 	managers []Manager
 }
 
-func StartScheduler(realmID, hostID string, managers ...Manager) *Scheduler {
+func StartScheduler(hostID string, managers ...Manager) *Scheduler {
 	scheduler := &Scheduler{
 		shutdown: make(chan struct{}),
 		threads:  sync.WaitGroup{},
-		realmID:  realmID,
 		hostID:   hostID,
 		managers: managers,
 	}
@@ -84,7 +82,8 @@ func (s *Scheduler) start(conn client.Connection) error {
 }
 
 func (s *Scheduler) manage(conn client.Connection, manager Manager) {
-	leader := AddLeader(conn, s.hostID, s.realmID, manager.Leader())
+	leaderPath, leaderNode := manager.Leader()
+	leader := conn.NewLeader(leaderPath, leaderNode)
 
 	for {
 		done := make(chan struct{}, 2)
@@ -126,7 +125,7 @@ func (s *Scheduler) manage(conn client.Connection, manager Manager) {
 		// start the manager
 		cancel := make(chan struct{})
 		go func() {
-			if err := manager.Run(cancel, s.hostID, realm); err != nil {
+			if err := manager.Run(cancel); err != nil {
 				glog.Warningf("Manager for host %s exiting: %s", s.hostID, err)
 				time.Sleep(5 * time.Second)
 			}

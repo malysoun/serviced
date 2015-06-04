@@ -41,7 +41,7 @@ func (m *LocalSync) Leader() string {
 }
 
 // Run starts the local sync manager
-func (m *LocalSync) Run(cancel <-chan struct{}, realm string) {
+func (m *LocalSync) Run(cancel <-chan struct{}) {
 	glog.Infof("Starting local synchronizer")
 	utils.RunTTL(cancel, m, 30*time.Second, 3*time.Hour)
 }

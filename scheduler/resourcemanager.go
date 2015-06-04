@@ -15,6 +15,8 @@ package scheduler
 
 import (
 	"fmt"
+	"path"
+	"sync"
 
 	"github.com/control-center/serviced/commons"
 	"github.com/control-center/serviced/coordinator/client"
@@ -32,17 +34,13 @@ import (
 type ResourceManager struct {
 	cpclient dao.ControlPlane
 	conn     client.Connection
-	poolID   string
-
-	hostreg *zkservice.HostRegistryListener
 }
 
 // NewResourceManager returns a resource manager object
-func NewResourceManager(cpclient dao.ControlPlane, conn client.Connection, poolID string) *ResourceManager {
+func NewResourceManager(cpclient dao.ControlPlane, conn client.Connection) *ResourceManager {
 	return &ResourceManager{
 		cpclient: cpclient,
 		conn:     client.Connection,
-		poolID:   poolID,
 	}
 }
 
@@ -51,29 +49,67 @@ func (m *ResourceManager) Leader() string {
 	return "/managers/resource"
 }
 
-// Run starts the resource manager
-func (m *ResourceManager) Run(cancel <-chan struct{}, realm string) error {
-	glog.Infof("Processing resource manager duties")
+func (m *ResourceManager) Run(cancel <-chan struct{}) error {
+	var wg sync.WaitGroup
+	errch := make(chan error)
 
-	// set up the host registry
-	if err := zkservice.InitHostRegistry(conn); err != nil {
-		glog.Errorf("Could not initialize host registry for pool %s: %s", m.poolID, err)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		zzk.Listen(cancel, errch, m.conn, &ResourceManager{cpclient: m.cpclient})
+	}()
+
+	if err := <-errch; err != nil {
 		return err
 	}
-	m.hostreg = zkservice.NewHostRegistryListener()
+	wg.Wait()
+	return nil
+}
 
-	// set up the service listener
-	svcListener := zkservice.NewServiceListener(m)
+// ResourceListener manages resources per pool
+type ResourceListener struct {
+	conn     client.Connection
+	cpclient dao.ControlClient
+	registry *zkservice.HostRegistryListener
+}
 
-	// start the listeners
-	zzk.Start(cancel, conn, svcListener, m.hostreg)
+func (l *ResourceListener) SetConnection(conn client.Connection) {
+	l.conn = conn
+}
+
+func (l *ResourceListener) GetPath(nodes ...string) string {
+	return path.Join(append([]string{"/pools"}, nodes...))
+}
+
+func (l *ResourceListener) Ready() error { return nil }
+
+func (l *ResourceListener) Done() {}
+
+func (l *ResourceListener) Spawn(cancel <-chan interface{}, poolID string) {
+	select {
+	case conn := <-zzk.Connect(zzk.GetLocalConnection, l.GetPath(poolID)):
+		if conn != nil {
+			// set up the host registry
+			if err := zkservice.InitHostRegistry(l.conn); err != nil {
+				glog.Errorf("Could not initialize host registry for pool %s: %s", poolID, err)
+				return
+			}
+			l.registry = zkservice.NewHostRegistryListener()
+			// set up the service listener
+			servicelistener := zkservice.NewServiceListener(l)
+			// start the listeners
+			zzk.Start(cancel, l.conn, servicelistener, l.registry)
+		}
+	case <-cancel:
+	}
+	return
 }
 
 // SelectHost chooses a host from the pool for the specified service. If the
 // service has an address assignment, the host will already be selected.  If
 // not, the host with the least amount of memory committed to running
 // containers will be chosen.
-func (m *ResourceManager) SelectHost(s *service.Service) (*host.Host, error) {
+func (l *ResourceListener) SelectHost(s *service.Service) (*host.Host, error) {
 	glog.Infof("Looking for available hosts in pool %s", m.poolID)
 	hosts, err := m.hostRegistry.GetHosts()
 	if err != nil {
