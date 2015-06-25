@@ -373,16 +373,290 @@ func (ft *FacadeTest) Test_RemoveAddrAssignmentsByHost(t *C) {
 }
 
 func (ft *FacadeTest) Test_GetAddrAssignmentByServiceEndpoint(t *C) {
+	defer ft.Facade.RemoveAddrAssignmentsByService(ft.CTX, "test_service_1")
+
+	expected := aa.AddressAssignment{
+		AssignmentType: "static",
+		HostID:         "hostid_1",
+		PoolID:         "",
+		IPAddr:         "10.20.1.2",
+		Port:           2000,
+		ServiceID:      "test_service_1",
+		EndpointName:   "endpoint_name_1",
+	}
+	err := ft.Facade.addAddrAssignment(ft.CTX, expected)
+	t.Assert(err, IsNil)
+
+	err = ft.Facade.addAddrAssignment(ft.CTX, aa.AddressAssignment{
+		AssignmentType: "static",
+		HostID:         "hostid_1",
+		PoolID:         "",
+		IPAddr:         "10.20.1.2",
+		Port:           2001,
+		ServiceID:      "test_service_1",
+		EndpointName:   "endpoint_name_2",
+	})
+	t.Assert(err, IsNil)
+
+	actual, err := ft.Facade.GetAddrAssignmentByServiceEndpoint(ft.CTX, "dummy_service", "dummy_endpoint")
+	t.Assert(err, IsNil)
+	t.Assert(actual, IsNil)
+	actual, err = ft.Facade.GetAddrAssignmentByServiceEndpoint(ft.CTX, "test_service_1", "endpoint_name_1")
+	t.Assert(err, IsNil)
+	t.Assert(actual, NotNil)
+	expected.ID = actual.ID
+	expected.DatabaseVersion++
+	t.Assert(actual, DeepEquals, &expected)
 }
 
 func (ft *FacadeTest) Test_GetAddrAssignmentByIPPort(t *C) {
+	defer ft.Facade.RemoveAddrAssignmentsByService(ft.CTX, "test_service_1")
+
+	expected := aa.AddressAssignment{
+		AssignmentType: "static",
+		HostID:         "hostid_1",
+		PoolID:         "",
+		IPAddr:         "10.20.1.2",
+		Port:           2000,
+		ServiceID:      "test_service_1",
+		EndpointName:   "endpoint_name_1",
+	}
+	err := ft.Facade.addAddrAssignment(ft.CTX, expected)
+	t.Assert(err, IsNil)
+
+	err = ft.Facade.addAddrAssignment(ft.CTX, aa.AddressAssignment{
+		AssignmentType: "static",
+		HostID:         "hostid_1",
+		PoolID:         "",
+		IPAddr:         "10.20.1.2",
+		Port:           2001,
+		ServiceID:      "test_service_1",
+		EndpointName:   "endpoint_name_2",
+	})
+	t.Assert(err, IsNil)
+
+	actual, err := ft.Facade.GetAddrAssignmentByIPPort(ft.CTX, "10.20.1.10", 2020)
+	t.Assert(err, IsNil)
+	t.Assert(actual, IsNil)
+	actual, err = ft.Facade.GetAddrAssignmentByIPPort(ft.CTX, "10.20.1.2", 2000)
+	t.Assert(err, IsNil)
+	t.Assert(actual, NotNil)
+	expected.ID = actual.ID
+	expected.DatabaseVersion++
+	t.Assert(actual, DeepEquals, &expected)
 }
 
 func (ft *FacadeTest) Test_GetAddrAssignmentsByService(t *C) {
+	defer ft.Facade.RemoveAddrAssignmentsByService(ft.CTX, "test_service_1")
+
+	actual, err := ft.Facade.GetAddrAssignmentsByService(ft.CTX, "test_service_1")
+	t.Assert(err, IsNil)
+	t.Assert(actual, HasLen, 0)
+
+	err = ft.Facade.addAddrAssignment(ft.CTX, aa.AddressAssignment{
+		AssignmentType: "static",
+		HostID:         "hostid_1",
+		PoolID:         "",
+		IPAddr:         "10.20.1.2",
+		Port:           2000,
+		ServiceID:      "test_service_1",
+		EndpointName:   "endpoint_name_1",
+	})
+	t.Assert(err, IsNil)
+	actual, err = ft.Facade.GetAddrAssignmentsByService(ft.CTX, "test_service_1")
+	t.Assert(err, IsNil)
+	t.Assert(actual, HasLen, 1)
+
+	err = ft.Facade.addAddrAssignment(ft.CTX, aa.AddressAssignment{
+		AssignmentType: "static",
+		HostID:         "hostid_1",
+		PoolID:         "",
+		IPAddr:         "10.20.1.2",
+		Port:           2001,
+		ServiceID:      "test_service_1",
+		EndpointName:   "endpoint_name_2",
+	})
+	t.Assert(err, IsNil)
+	actual, err = ft.Facade.GetAddrAssignmentsByService(ft.CTX, "test_service_1")
+	t.Assert(err, IsNil)
+	t.Assert(actual, HasLen, 2)
+
+	err = ft.Facade.addAddrAssignment(ft.CTX, aa.AddressAssignment{
+		AssignmentType: "static",
+		HostID:         "hostid_1",
+		PoolID:         "",
+		IPAddr:         "10.20.1.2",
+		Port:           2003,
+		ServiceID:      "test_service_2",
+		EndpointName:   "endpoint_name_1",
+	})
+	t.Assert(err, IsNil)
+	defer ft.Facade.RemoveAddrAssignmentsByService(ft.CTX, "test_service_2")
+	actual, err = ft.Facade.GetAddrAssignmentsByService(ft.CTX, "test_service_1")
+	t.Assert(err, IsNil)
+	t.Assert(actual, HasLen, 2)
+	actual, err = ft.Facade.GetAddrAssignmentsByService(ft.CTX, "test_service_2")
+	t.Assert(err, IsNil)
+	t.Assert(actual, HasLen, 1)
 }
 
 func (ft *FacadeTest) Test_GetAddrAssignmentsByIP(t *C) {
+	defer ft.Facade.RemoveAddrAssignmentsByIP(ft.CTX, "10.20.1.2")
+
+	actual, err := ft.Facade.GetAddrAssignmentsByIP(ft.CTX, "10.20.1.2")
+	t.Assert(err, IsNil)
+	t.Assert(actual, HasLen, 0)
+
+	err = ft.Facade.addAddrAssignment(ft.CTX, aa.AddressAssignment{
+		AssignmentType: "static",
+		HostID:         "hostid_1",
+		PoolID:         "",
+		IPAddr:         "10.20.1.2",
+		Port:           2000,
+		ServiceID:      "test_service_1",
+		EndpointName:   "endpoint_name_1",
+	})
+	t.Assert(err, IsNil)
+	actual, err = ft.Facade.GetAddrAssignmentsByIP(ft.CTX, "10.20.1.2")
+	t.Assert(err, IsNil)
+	t.Assert(actual, HasLen, 1)
+
+	err = ft.Facade.addAddrAssignment(ft.CTX, aa.AddressAssignment{
+		AssignmentType: "static",
+		HostID:         "hostid_1",
+		PoolID:         "",
+		IPAddr:         "10.20.1.2",
+		Port:           2001,
+		ServiceID:      "test_service_1",
+		EndpointName:   "endpoint_name_2",
+	})
+	t.Assert(err, IsNil)
+	actual, err = ft.Facade.GetAddrAssignmentsByIP(ft.CTX, "10.20.1.2")
+	t.Assert(err, IsNil)
+	t.Assert(actual, HasLen, 2)
+
+	err = ft.Facade.addAddrAssignment(ft.CTX, aa.AddressAssignment{
+		AssignmentType: "static",
+		HostID:         "hostid_1",
+		PoolID:         "",
+		IPAddr:         "10.20.1.3",
+		Port:           2003,
+		ServiceID:      "test_service_2",
+		EndpointName:   "endpoint_name_1",
+	})
+	t.Assert(err, IsNil)
+	defer ft.Facade.RemoveAddrAssignmentsByIP(ft.CTX, "10.20.1.3")
+	actual, err = ft.Facade.GetAddrAssignmentsByIP(ft.CTX, "10.20.1.2")
+	t.Assert(err, IsNil)
+	t.Assert(actual, HasLen, 2)
+	actual, err = ft.Facade.GetAddrAssignmentsByIP(ft.CTX, "10.20.1.3")
+	t.Assert(err, IsNil)
+	t.Assert(actual, HasLen, 1)
 }
 
 func (ft *FacadeTest) Test_GetAddrAssignmentsByHost(t *C) {
+	defer ft.Facade.RemoveAddrAssignmentsByHost(ft.CTX, "hostid_1")
+
+	actual, err := ft.Facade.GetAddrAssignmentsByHost(ft.CTX, "hostid_1")
+	t.Assert(err, IsNil)
+	t.Assert(actual, HasLen, 0)
+
+	err = ft.Facade.addAddrAssignment(ft.CTX, aa.AddressAssignment{
+		AssignmentType: "static",
+		HostID:         "hostid_1",
+		PoolID:         "",
+		IPAddr:         "10.20.1.2",
+		Port:           2000,
+		ServiceID:      "test_service_1",
+		EndpointName:   "endpoint_name_1",
+	})
+	t.Assert(err, IsNil)
+	actual, err = ft.Facade.GetAddrAssignmentsByHost(ft.CTX, "hostid_1")
+	t.Assert(err, IsNil)
+	t.Assert(actual, HasLen, 1)
+
+	err = ft.Facade.addAddrAssignment(ft.CTX, aa.AddressAssignment{
+		AssignmentType: "static",
+		HostID:         "hostid_1",
+		PoolID:         "",
+		IPAddr:         "10.20.1.2",
+		Port:           2001,
+		ServiceID:      "test_service_1",
+		EndpointName:   "endpoint_name_2",
+	})
+	t.Assert(err, IsNil)
+	actual, err = ft.Facade.GetAddrAssignmentsByHost(ft.CTX, "hostid_1")
+	t.Assert(err, IsNil)
+	t.Assert(actual, HasLen, 2)
+
+	err = ft.Facade.addAddrAssignment(ft.CTX, aa.AddressAssignment{
+		AssignmentType: "static",
+		HostID:         "hostid_2",
+		PoolID:         "",
+		IPAddr:         "10.20.1.3",
+		Port:           2003,
+		ServiceID:      "test_service_2",
+		EndpointName:   "endpoint_name_1",
+	})
+	t.Assert(err, IsNil)
+	defer ft.Facade.RemoveAddrAssignmentsByHost(ft.CTX, "hostid_2")
+	actual, err = ft.Facade.GetAddrAssignmentsByHost(ft.CTX, "hostid_1")
+	t.Assert(err, IsNil)
+	t.Assert(actual, HasLen, 2)
+	actual, err = ft.Facade.GetAddrAssignmentsByHost(ft.CTX, "hostid_2")
+	t.Assert(err, IsNil)
+	t.Assert(actual, HasLen, 1)
+}
+
+func (ft *FacadeTest) Test_GetAddrAssignmentsByPort(t *C) {
+	defer ft.Facade.RemoveAddrAssignmentsByHost(ft.CTX, "hostid_1")
+
+	actual, err := ft.Facade.GetAddrAssignmentsByPort(ft.CTX, 2000)
+	t.Assert(err, IsNil)
+	t.Assert(actual, HasLen, 0)
+
+	err = ft.Facade.addAddrAssignment(ft.CTX, aa.AddressAssignment{
+		AssignmentType: "static",
+		HostID:         "hostid_1",
+		PoolID:         "",
+		IPAddr:         "10.20.1.2",
+		Port:           2000,
+		ServiceID:      "test_service_1",
+		EndpointName:   "endpoint_name_1",
+	})
+	t.Assert(err, IsNil)
+	actual, err = ft.Facade.GetAddrAssignmentsByPort(ft.CTX, 2000)
+	t.Assert(err, IsNil)
+	t.Assert(actual, HasLen, 1)
+
+	err = ft.Facade.addAddrAssignment(ft.CTX, aa.AddressAssignment{
+		AssignmentType: "static",
+		HostID:         "hostid_1",
+		PoolID:         "",
+		IPAddr:         "10.20.1.3",
+		Port:           2000,
+		ServiceID:      "test_service_2",
+		EndpointName:   "endpoint_name_1",
+	})
+	t.Assert(err, IsNil)
+	actual, err = ft.Facade.GetAddrAssignmentsByPort(ft.CTX, 2000)
+	t.Assert(err, IsNil)
+	t.Assert(actual, HasLen, 2)
+
+	err = ft.Facade.addAddrAssignment(ft.CTX, aa.AddressAssignment{
+		AssignmentType: "static",
+		HostID:         "hostid_1",
+		PoolID:         "",
+		IPAddr:         "10.20.1.4",
+		Port:           2001,
+		ServiceID:      "test_service_3",
+		EndpointName:   "endpoint_name_1",
+	})
+	t.Assert(err, IsNil)
+	actual, err = ft.Facade.GetAddrAssignmentsByPort(ft.CTX, 2000)
+	t.Assert(err, IsNil)
+	t.Assert(actual, HasLen, 2)
+	actual, err = ft.Facade.GetAddrAssignmentsByPort(ft.CTX, 2001)
+	t.Assert(err, IsNil)
+	t.Assert(actual, HasLen, 1)
 }
