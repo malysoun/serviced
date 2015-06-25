@@ -69,7 +69,7 @@ func FilterServiceByName(nameRegex string) (FilterService, error) {
 
 /* CRUD */
 
-// AddService creates a new local service.  Retuns an error if the service
+// AddService creates a new local service.  Returns an error if the service
 // already exists
 func (f *Facade) AddService(ctx datastore.Context, svc service.Service, isRemote bool, autoAssignIPs bool) error {
 	glog.V(2).Infof("Facade.AddService: %+v", svc)
