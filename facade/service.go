@@ -1001,7 +1001,7 @@ func (f *Facade) GetServicePath(ctx datastore.Context, serviceID string) (string
 	store := f.serviceStore
 
 	var getParentPath func(string) (string, string, error)
-	getParentPath = func(string) (string, string, error) {
+	getParentPath = func(serviceID string) (string, string, error) {
 		svc, err := store.Get(ctx, serviceID)
 		if err != nil {
 			glog.Errorf("Could not look up service %s: %s", serviceID, err)
