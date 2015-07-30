@@ -239,6 +239,11 @@ func (f *Facade) ScheduleService(ctx datastore.Context, serviceID string, autoLa
 			svc.DesiredState = int(state)
 		}
 
+		if err := f.setServiceConfigs(ctx, svc); err != nil {
+			glog.Errorf("Could not set service configs for service %s (%s); %s", svc.Name, svc.ID, err)
+			return err
+		}
+
 		if err := f.updateService(ctx, svc, false); err != nil {
 			glog.Errorf("Could not update service %s (%s): %s", svc.Name, svc.ID, err)
 			return err
