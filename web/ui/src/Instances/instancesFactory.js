@@ -90,9 +90,9 @@
 
         this.resources = {
             RAMCommitment: 0,
-            RAMLast: 0,
-            RAMMax: 0,
-            RAMAverage: 0
+            RAMLast: null,
+            RAMMax: null,
+            RAMAverage: null
         };
 
         this.update(instance);
@@ -119,9 +119,10 @@
             // TODO - formally define health id
             this.healthId = this.model.ServiceID +"."+ instance.InstanceID;
             this.desiredState = instance.DesiredState;
-            this.resources.RAMAverage = Math.max(0, instance.RAMAverage);
-            this.resources.RAMLast = Math.max(0, instance.RAMLast);
-            this.resources.RAMMax = Math.max(0, instance.RAMMax);
+            // -1 means no value, so replace with null
+            this.resources.RAMAverage = instance.RAMAverage === -1 ? null : instance.RAMAverage;
+            this.resources.RAMLast = instance.RAMLast === -1 ? null : instance.RAMAverage;
+            this.resources.RAMMax = instance.RAMMax === -1 ? null : instance.RAMMax;
             this.resources.RAMCommitment = utils.parseEngineeringNotation(instance.RAMCommitment);
         },
 
@@ -138,7 +139,7 @@
         },
 
         resourcesGood: function() {
-            return this.resources.RAMLast < this.resources.RAMCommitment;
+            return (this.resources.RAMLast || 0) < this.resources.RAMCommitment;
         }
     };
 

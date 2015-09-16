@@ -35,7 +35,11 @@
           <span ng-show="host.RAMCommitment!==0" ng-class="{'bad': !host.resourcesGood()}" class="overcomText">{{host.RAMCommitment|toGB}}</span>
       </td>
       <td data-title="'RAM Cur/Max/Avg'" style="text-align:left;">
-          <span ng-class="{'bad': !host.resourcesGood()}" class="overcomText">{{host.RAMLast|toGB:true}} / {{host.RAMMax|toGB:true}} / {{host.RAMAverage|toGB:true}} GB</span>
+        <ram-spread
+            data-last="host.RAMLast"
+            data-max="host.RAMMax"
+            data-average="host.RAMAverage"
+            data-commitment="host.RAMCommitment"></ram-spread>
       </td>
       <td data-title="'label_host_cores'|translate" sortable="'model.Cores'">{{host.model.Cores}}</td>
       <td data-title="'label_host_kernel_version'|translate" sortable="'model.KernelVersion'">{{host.model.KernelVersion}}</td>

@@ -96,9 +96,6 @@
                         this.lastUpdate = new Date().getTime();
                     });
 
-                // keep instances up to date
-                //instancesFactory.update();
-
                 return deferred.promise;
             },
 

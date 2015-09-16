@@ -65,10 +65,7 @@
         },
 
         resourcesGood: function() {
-            if (this.RAMCommitment === 0) {
-                return true;
-            }
-            return this.RAMAverage <= this.RAMCommitment;
+            return (this.RAMAverage || 0) <= this.RAMCommitment;
         }
     };
 
@@ -83,7 +80,7 @@
             var instances = this.instances;
             var sum = 0;
             for (var i = 0; i < instances.length; i++) {
-                sum += instances[i].resources.RAMLast;
+                sum += (instances[i].resources.RAMLast || 0);
             }
             return sum;
         }
@@ -94,7 +91,7 @@
             var instances = this.instances;
             var sum = 0;
             for (var i = 0; i < instances.length; i++) {
-                sum += instances[i].resources.RAMMax;
+                sum += (instances[i].resources.RAMMax || 0);
             }
             return sum;
         }
@@ -105,7 +102,7 @@
             var instances = this.instances;
             var sum = 0;
             for (var i = 0; i < instances.length; i++) {
-                sum += instances[i].resources.RAMAverage;
+                sum += (instances[i].resources.RAMAverage || 0);
             }
             return sum;
         }

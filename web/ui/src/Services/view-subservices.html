@@ -184,12 +184,15 @@
                     <health-icon data-status="app.status"></health-icon>
                 </td>
                 <td data-title="'RAM Commitment'" style="text-align:left;">
-                    <span ng-show="app.resources.RAMCommitment===0">N/A</span>
+                    <span ng-show="app.resources.RAMCommitment===0">0 bytes</span>
                     <span ng-show="app.resources.RAMCommitment!==0" ng-class="{'bad': !app.resourcesGood()}" class="overcomText">{{app.resources.RAMCommitment|toMB}}</span>
                 </td>
                 <td data-title="'RAM Cur/Max/Avg'" style="text-align:left;">
-                    <span ng-show="app.resources.RAMCommitment===0">N/A</span>
-                    <span ng-show="app.resources.RAMCommitment!==0" ng-class="{'bad': !app.resourcesGood()}" class="overcomText">{{app.resources.RAMLast|toMB:true}} / {{app.resources.RAMMax|toMB:true}} / {{app.resources.RAMAverage|toMB:true}} MB</span>
+                    <ram-spread
+                        data-last="app.resources.RAMLast"
+                        data-max="app.resources.RAMMax"
+                        data-average="app.resources.RAMAverage"
+                        data-commitment="app.resources.RAMCommitment"></ram-spread>
                 </td>
                 <td data-title="'host'|translate" sortable="'getHostName(app.model.HostID)'" ng-click="click_host(app.model.HostID)" class="link">{{getHostName(app.model.HostID)}}</td>
                 <td data-title="'running_tbl_docker_id'|translate" sortable="'model.DockerID'">{{app.model.DockerID|cut:false:12:"..."}}</td>
