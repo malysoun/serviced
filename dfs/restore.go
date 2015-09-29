@@ -51,7 +51,7 @@ func (r *restore) init() *restore {
 		Pools:     make(chan []pool.ResourcePool, 1),
 		Hosts:     make(chan []host.Host, 1),
 		Tenants:   make(map[string]string),
-		Registry:  make(map[string]chan []registry.RegistryImage),
+		Registry:  make(map[string]chan map[string]string),
 	}
 	return r
 }
@@ -121,7 +121,7 @@ func (dfs *DistributedFilesystem) Restore(reader io.Reader) error {
 				tenantID, base := path.Dir(app), path.Base(app)
 				regChan, ok := r.Registry[tenantID]
 				if !ok {
-					r.Registry[tenantID] = make(chan []registry.RegistryImage, 1)
+					r.Registry[tenantID] = make(chan map[string]string, 1)
 					regChan = r.Registry[tenantID]
 				}
 				switch base {
@@ -144,7 +144,7 @@ func (dfs *DistributedFilesystem) Restore(reader io.Reader) error {
 					}
 					t.Tenants[tenantID] = label
 				case "registry":
-					var registry []registry.RegistryImage
+					registry := make(map[string]string)
 					if err := json.NewDecoder(tarfile).Decode(&registry); err != nil {
 						glog.Errorf("Could not decode registry data for tenant %s from backup: %s", tenantID, err)
 						return err
@@ -201,9 +201,9 @@ func (dfs *DistributedFilesystem) Restore(reader io.Reader) error {
 	// restore disk and images
 	for tenantID, label := range r.Tenants {
 		select {
-		case registryImages := <-r.Registry[tenantID]:
-			for _, registryImage := range registryImages {
-				if err := dfs.PushImage(registryImage.String(), registryImage.UUID); err != nil {
+		case rImages := <-r.Registry[tenantID]:
+			for repotag, uuid := range rImages {
+				if _, err := dfs.registry.PushImage(repotag, uuid); err != nil {
 					glog.Errorf("Could not restore images for tenant %s from backup: %s", tenantID, err)
 					return err
 				}

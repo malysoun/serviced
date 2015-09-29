@@ -69,29 +69,28 @@ func (dfs *DistributedFilesystem) Create(tenantID string) error {
 }
 
 // createRegistryImage builds the repo for the tenant.
-func (dfs *DistributedFilesystem) createRegistryImage(tenantID, imageID string) (string, error) {
+func (dfs *DistributedFilesystem) createRegistryImage(tenantID, image string) (string, error) {
 	// Download the image if it isn't already there
-	image, err := dfs.docker.FindImage(imageID)
+	img, err := dfs.docker.FindImage(image)
 	if err != nil {
-		if docker.IsImageNotFound(err) {
-			if img, err = dfs.docker.PullImage(image); err != nil {
-				glog.Errorf("Could not pull image %s: %s", imageID, err)
-				return "", err
-			}
-		} else {
-			glog.Errorf("Could not look up image %s: %s", imageID, err)
+		if err := dfs.docker.PullImage(image); err != nil {
+			glog.Errorf("Could not pull image %s: %s", image, err)
+			return "", err
+		}
+		if img, err = dfs.docker.FindImage(image); err != nil {
+			glog.Errorf("Could not find image %s: %s", image, err)
 			return "", err
 		}
 	}
-	// Parse the repo
-	registryImage := &commons.ImageID{
+	imageID, err := commons.ParseImageID(image)
+	repotag := &commons.ImageID{
 		User: tenantID,
-		Repo: img.ImageID.Repo,
+		Repo: imageID.Repo,
 		Tag:  docker.DockerLatest,
-	}
-	// Push the image
-	if err := dfs.PushImage(registryImage.String(), image.ID); err != nil {
+	}.String()
+	rImage, err := dfs.registry.PushImage(repotag, img.ID)
+	if err != nil {
 		return "", err
 	}
-	return registryImage.String(), nil
+	return repotag, nil
 }

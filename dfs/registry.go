@@ -14,9 +14,12 @@
 package dfs
 
 import (
+	"errors"
+	"fmt"
 	"time"
 
 	"github.com/control-center/serviced/commons"
+	"github.com/control-center/serviced/commons/docker"
 	"github.com/control-center/serviced/datastore"
 	"github.com/control-center/serviced/facade"
 	"github.com/zenoss/glog"
@@ -24,20 +27,11 @@ import (
 
 // Registry is the current mapping of all docker registry tags to uuids
 type Registry interface {
-	// ParseImage redirects the image so that it is written to the registry
-	ParseImage(repotag string) (string, *registry.Image, error)
-	// GetImage returns the registry image object for the repotag
-	GetImage(repotag string) (string, *registry.Image, error)
-	// SetImage creates/updates an images uuid to be written to the registry.
-	SetImage(image *registry.Image) (string, error)
-	// UpdatePush updates the time when the image was pushed.
-	UpdatePush(repotag string) error
-	// SearchLibraryByTag returns all images in a particular library that has a
-	// particular tag.
-	SearchLibraryByTag(library, tag string) ([]registry.Image, error)
-	// DeleteLibrary deletes all images for a particular library from the
-	// registry.
-	DeleteLibrary(library string) error
+	GetImage(image string) (*registry.Image, error)
+	PushImage(image, uuid string) (string, error)
+	PullImage(image string) (string, error)
+	DeleteImage(image string) error
+	SearchLibrary(library string, tags ...string) (map[string]string, error)
 }
 
 // registry is the dfs implementation of registry where data is written into
@@ -46,94 +40,144 @@ type registry struct {
 	host   string
 	port   int
 	facade *facade.Facade
+	docker Docker
 }
 
-// ParseImage implements Registry
-func (r *registry) ParseImage(repotag string) (string, *registry.Image, error) {
-	imageID, err := commons.ParseImageID(repotag)
+func (r *registry) GetImage(image string) (*registry.Image, error) {
+	imageID, err := commons.ParseImageID(image)
 	if err != nil {
-		glog.Errrof("Could not parse image %s: %s", repotag, err)
-		return nil, nil, err
+		return nil, err
 	}
-	id := &commons.ImageID{
+	if imageID.IsLatest() {
+		imageID.Tag = docker.DockerLatest
+	}
+	repotag := &commons.ImageID{
+		User: imageID.User,
+		Repo: imageID.Repo,
+		Tag:  imageID.Tag,
+	}.String()
+	ctx := datastore.Get()
+	rImage, err := r.facade.GetRegistryImage(ctx, repotag)
+	if err != nil {
+		return nil, err
+	}
+	return rImage, nil
+}
+
+func (r *registry) PushImage(image, uuid string) (string, error) {
+	imageID, err := commons.ParseImageID(image)
+	if err != nil {
+		return "", err
+	}
+	if imageID.IsLatest() {
+		imageID.Tag = docker.DockerLatest
+	}
+	repotag := &commons.ImageID{
 		Host: r.host,
 		Port: r.port,
 		User: imageID.User,
 		Repo: imageID.Repo,
 		Tag:  imageID.Tag,
+	}.String()
+	if err := r.docker.TagImage(uuid, repotag); err != nil {
+		return "", err
 	}
-	registryImage := &registry.Image{
+	rImage := &registry.Image{
 		Library: imageID.User,
 		Repo:    imageID.Repo,
 		Tag:     imageID.Tag,
-	}
-	return id.String, registryImage, nil
-}
-
-// GetImage implements Registry
-func (r *registry) GetImage(repotag string) (string, *registry.Image, error) {
-	imageID, registryImage, err := r.ParseImage(repotag)
-	if err != nil {
-		return "", nil, err
+		UUID:    imageID.UUID,
 	}
 	ctx := datastore.Get()
-	registryImage, err = r.facade.GetRegistryImage(ctx, registryImage.String())
-	if err != nil {
-		glog.Errorf("Image not found %s: %s", repotag, err)
-		return "", nil, err
-	}
-	return imageID, registryImage, nil
-}
-
-// SetImage implements Registry
-func (r *registry) SetImage(registryImage *registry.Image) (string, error) {
-	if err := r.facade.SetRegistryImage(ctx, *registry); err != nil {
-		glog.Errorf("Could not set image %s: %s", registryImage, err)
+	if err := r.facade.SetRegistryImage(ctx, rImage); err != nil {
 		return "", err
 	}
-	imageID := &commons.ImageID{
-		Host: r.host,
-		Port: r.port,
-		User: registryImage.Library,
-		Repo: registryImage.Repo,
-		Tag:  registryImage.Tag,
-	}
-	return imageID.String(), nil
+	go func() {
+		if err := r.docker.PushImage(repotag); err != nil {
+			glog.Warningf("Could not push image %s: %s", repotag, err)
+			return
+		}
+		rImage.PushedAt = time.Now().UTC()
+		if err := r.facade.SetRegistryImage(ctx, rImage); err != nil {
+			glog.Warningf("Could not update registry %s: %s", repotag, err)
+			return
+		}
+	}()
+	return repotag, nil
 }
 
-// UpdatePush implements Registry
-func (r *registry) UpdatePush(repotag string) error {
-	_, registryImage, err := r.GetImage(repotag)
+func (r *registry) PullImage(image string) (string, error) {
+	imageID, err := commons.ParseImageID(img.Config.Image)
+	if err != nil {
+		return "", err
+	}
+	if imageID.IsLatest() {
+		imageID.Tag = docker.DockerLatest
+	}
+	repotag := &commons.ImageID{
+		User: imageID.User,
+		Repo: imageID.Repo,
+		Tag:  imageID.Tag,
+	}.String()
+	ctx := datastore.Get()
+	rImage, err := r.facade.GetRegistryImage(ctx, repotag)
+	if err != nil {
+		return "", err
+	}
+	img, err := r.docker.FindImage(rImage.UUID)
+	if err != nil {
+		if docker.IsImageNotFound(err) {
+			if rImage.PushedAt > 0 {
+				if err := r.docker.PullImage(fmt.Sprintf("%s:%d/%s", r.host, r.port, repotag)); err != nil {
+					return err
+				}
+				if img, err = r.docker.FindImage(rImage.UUID); err != nil {
+					return err
+				}
+				return rImage.UUID, nil
+			} else {
+				return "", errors.New("dfs: image not in registry")
+			}
+		} else {
+			return "", err
+		}
+	}
+	if err := docker.TagImage(rImage.UUID, fmt.Sprintf("%s:%d/%s", r.host, r.port, repotag)); err != nil {
+		return "", err
+	}
+	return rImage.UUID, nil
+}
+
+func (r *registry) DeleteImage(image string) error {
+	imageID, err := commons.ParseImageID(img.Config.Image)
+	if err != nil {
+		return "", err
+	}
+	if imageID.IsLatest() {
+		imageID.Tag = docker.DockerLatest
+	}
+	repotag := &commons.ImageID{
+		User: imageID.User,
+		Repo: imageID.Repo,
+		Tag:  imageID.Tag,
+	}.String()
+	ctx := datastore.Get()
+	rImage, err := r.facade.DeleteRegistryImage(ctx, repotag)
 	if err != nil {
 		return err
 	}
-	registryImage.PushedAt = time.Now().UTC()
-	ctx := datastore.Get()
-	rImage, err := r.facade.SetRegistryImage(ctx, *registry)
-	if err != nil {
-		glog.Errorf("Could not set image %s with uuid %s: %s", repotag, uuid, err)
-		return nil, err
-	}
+	r.docker.RemoveImage(fmt.Sprintf("%s:%d/%s", r.host, r.port, repotag))
 	return nil
 }
 
-// SearchLibraryByTag implements Registry
-func (r *registry) SearchLibraryByTag(library, tag string) ([]registry.Image, err) {
-	ctx := datastore.Get()
-	registryImages, err := r.facade.SearchRegistryByLibraryAndTag(ctx, library, tag)
+func (r *registry) SearchLibrary(library, tags ...string) (map[string]string, error) {
+	images, err := f.facade.SearchRegistryLibrary(ctx, library, tags)
 	if err != nil {
-		glog.Errorf("Could not search registry for images in library %s with tag %s: %s", library, tag, err)
 		return nil, err
 	}
-	return registryImages, nil
-}
-
-// DeleteLibrary implements Registry
-func (r *registry) DeleteLibrary(library string) error {
-	ctx := datastore.Get()
-	if err := r.facade.DeleteRegistryLibrary(ctx, library); err != nil {
-		glog.Errorf("Could not delete registry images from library %s: %s", library, err)
-		return err
+	repotags := make(map[string]string)
+	for _, image := range repotags {
+		repotags[fmt.Sprintf("%s:%d/%s", r.host, r.port, image)] = image.UUID
 	}
-	return nil
+	return repotags, nil
 }

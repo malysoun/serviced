@@ -65,14 +65,26 @@ func (dfs *DistributedFilesystem) Destroy(tenantID string) error {
 		glog.Errorf("Could not remove share for %s: %s", tenantID, err)
 		return err
 	}
+	// Delete the snapshots
+	vol, err := dfs.disk.Get(tenantID)
+	if err != nil {
+		glog.Errorf("Could not get volume for tenant %s: %s", tenantID, err)
+		return err
+	}
+	snapshots, err := vol.Snapshots()
+	if err != nil {
+		glog.Errorf("Could not get snapshots for volume %s: %s", tenantID, err)
+		return err
+	}
+	for _, snapshot := range snapshots {
+		if err := dfs.DeleteSnapshot(snapshot); err != nil {
+			glog.Errorf("Could not delete snapshot %s: %s", snapshot, err)
+			return err
+		}
+	}
 	// Remove the disk
 	if err := dfs.disk.Remove(tenantID); err != nil {
 		glog.Errorf("Could not remove volume %s: %s", tenantID, err)
-		return err
-	}
-	// Destroy the image repo from the registry
-	if err := dfs.registry.DeleteLibrary(tenantID); err != nil {
-		glog.Errorf("Could not remove registry library for tenant %s: %s", tenantID, err)
 		return err
 	}
 	return nil

@@ -127,24 +127,23 @@ func (dfs *DistributedFilesystem) Backup(cancel <-chan struct{}, writer io.Write
 		default:
 		}
 		// export the snapshot images
-		registryImages, err := dfs.registry.SearchLibraryByTag(tenantID, snapshot.Label)
+		rImages, err := dfs.registry.SearchLibrary(tenantID, snapshot.Label)
 		if err != nil {
 			glog.Errorf("Could not get registry images for %s at %s: %s", tenantID, snapshot.Label, err)
 			return err
-		} else if err := encoder.Encode(registryImages); err != nil {
+		} else if err := encoder.Encode(rImages); err != nil {
 			glog.Errorf("Could not marshal registry images for %s: %s", tenantID, err)
 			return err
 		} else if err := writeTar(tarfile, fmt.Sprintf("APPS/%s/registry", tenantID), buffer); err != nil {
-			glog.Errorf("Could not write registry images for backup: %s", err)
+			glog.Errorf("Could not write registry images fo backup: %s", err)
 			return err
 		}
-		for _, registryImage := range registryImages {
-			image, err := dfs.PullImage(registryImage.String())
-			if err != nil {
-				glog.Errorf("Could not pull registry image %s: %s", registryImage, err)
+		for rImage := range rImages {
+			if _, err := dfs.registry.PullImage(rImage); err != nil {
+				glog.Errorf("Could not pull registry image %s: %s", rImage, err)
 				return err
 			}
-			repotags = append(repotags, image.ID)
+			repotags = append(repotags, rImage)
 		}
 		select {
 		case <-cancel:

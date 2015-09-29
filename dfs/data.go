@@ -41,7 +41,15 @@ func (db *database) UpdateService(svc *service.Service) error {
 
 func (db *database) GetServiceTemplates() ([]servicetemplate.ServiceTemplate, error) {
 	ctx := datastore.Get()
-	return db.facade.GetServiceTemplates(ctx)
+	tmap, err := db.facade.GetServiceTemplates(ctx)
+	if err != nil {
+		return nil, err
+	}
+	templates := make([]servicetemplate.ServiceTemplate, 0)
+	for _, t := range tmap {
+		templates = append(templates, t)
+	}
+	return templates, nil
 }
 
 func (db *database) GetResourcePools() ([]pool.ResourcePool, error) {

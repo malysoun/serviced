@@ -10,10 +10,6 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-// Package agent implements a service that runs on a serviced node. It is
-// responsible for ensuring that a particular node is running the correct services
-// and reporting the state and health of those services back to the master
-// serviced.
 
 package dfs
 
@@ -37,13 +33,13 @@ func (dfs *DistributedFilesystem) Commit(dockerID, message string) (string, erro
 		return "", errors.New("dfs: cannot commit a running container")
 	}
 	// check if the container is stale (ctr.Config.Image is the repotag)
-	registryImage, err := dfs.registry.GetImage(ctr.Config.Image)
+	rImage, err := dfs.registry.GetImage(ctr.Config.Image)
 	if err != nil {
-		glog.Errorf("Could not find image %s in registry: %s", ctr.Image, err)
+		glog.Errorf("Could not find image %s in registry for container %s: %s", ctr.Config.Image, ctr.ID, err)
 		return "", err
 	}
 	// verify that we are committing to latest (ctr.Image is the UUID)
-	if registryImage.Tag != docker.DockerLatest || registryImage.UUID != ctr.Image {
+	if rImage.Tag != docker.DockerLatest || rImage.UUID != ctr.Image {
 		return "", errors.New("dfs: cannot commit a stale container")
 	}
 	// commit the container
@@ -53,7 +49,7 @@ func (dfs *DistributedFilesystem) Commit(dockerID, message string) (string, erro
 		return "", err
 	}
 	dfs.checkImageLayers(image.ID)
-	if err := dfs.PushRegistryImage(image.Config.Image, image.ID); err != nil {
+	if err := dfs.registry.PushImage(image.Config.Image, image.ID); err != nil {
 		glog.Errorf("Could not push image %s (%s): %s", image.Config.Image, image.ID, err)
 		return "", err
 	}

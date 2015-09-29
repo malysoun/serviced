@@ -35,7 +35,18 @@ func (dfs *DistributedFilesystem) Rollback(snapshotID string, forceRestart bool)
 		glog.Errorf("Could not find snapshot %s: %s", snapshotID, err)
 		return err
 	}
-	tenantID, label := snapshot.TenantID(), snapshot.Name()
+	tenantID := snapshot.TenantID()
+	vol, err := dfs.disk.Get(tenantID)
+	if err != nil {
+		glog.Errorf("Could not get volume for tenant %s: %s", tenantID, err)
+		return err
+	}
+	info, err := vol.SnapshotInfo(snapshotID)
+	if err != nil {
+		glog.Errorf("Could not get info about snapshot %s: %s", snapshotID, err)
+		return err
+	}
+	label := info.Label
 	// Prevent service scheduler from creating new instances
 	lock := dfs.data.GetTenantLock(tenantID)
 	if err != nil {
@@ -73,11 +84,6 @@ func (dfs *DistributedFilesystem) Rollback(snapshotID string, forceRestart bool)
 		return err
 	}
 	// Rollback the services
-	vol, err := dfs.disk.Get(tenantID)
-	if err != nil {
-		glog.Errorf("Could not get volume for tenant %s: %s", tenantID, err)
-		return err
-	}
 	if importFile, err := vol.ReadMetadata(label, "services.json"); err != nil {
 		glog.Errorf("Could not read service metadata of snapshot %s: %s", snapshotID, err)
 		return err
