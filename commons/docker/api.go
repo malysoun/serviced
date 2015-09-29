@@ -16,6 +16,7 @@ package docker
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"regexp"
 	"sync"
@@ -610,7 +611,7 @@ func (img *Image) Inspect() (*dockerclient.Image, error) {
 	return InspectImage(img.UUID)
 }
 
-func SaveImages(outfile *os.File, repotags ...string) error {
+func SaveImages(outfile io.Writer, repotags ...string) error {
 	dc, err := getDockerClient()
 	if err != nil {
 		return err
@@ -618,24 +619,16 @@ func SaveImages(outfile *os.File, repotags ...string) error {
 	return dc.ExportImages(dockerclient.ExportImagesOptions{Names: repotags, OutputStream: outfile})
 }
 
-func (img *Image) Save(outfile *os.File) error {
+func (img *Image) Save(outfile io.Writer) error {
 	return SaveImages(outfile, img.ID.String())
 }
 
-func LoadImages(filename string) error {
+func LoadImages(reader io.Reader) error {
 	dc, err := getDockerClient()
 	if err != nil {
 		return err
 	}
-
-	glog.V(1).Infof("importing images from %s", filename)
-	f, err := os.Open(filename)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-
-	opts := dockerclient.LoadImageOptions{InputStream: f}
+	opts := dockerclient.LoadImageOptions{InputStream: reader}
 	return dc.LoadImage(opts)
 }
 

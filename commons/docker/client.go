@@ -45,6 +45,8 @@ type ClientInterface interface {
 
 	ExportContainer(opts dockerclient.ExportContainerOptions) error
 
+	ImageHistory(image string) ([]dockerclient.ImageHistory, error)
+
 	ImportImage(opts dockerclient.ImportImageOptions) error
 
 	ExportImages(opts dockerclient.ExportImagesOptions) error
@@ -80,7 +82,7 @@ type ClientInterface interface {
 	TagImage(name string, opts dockerclient.TagImageOptions) error
 
 	WaitContainer(id string) (int, error)
-	
+
 	Version() (*dockerclient.Env, error)
 }
 
