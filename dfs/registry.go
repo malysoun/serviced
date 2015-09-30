@@ -31,7 +31,7 @@ type Registry interface {
 	PushImage(image, uuid string) (string, error)
 	PullImage(image string) (string, error)
 	DeleteImage(image string) error
-	SearchLibrary(library string, tags ...string) (map[string]string, error)
+	SearchLibrary(library string, tag string) (map[string]string, error)
 }
 
 // registry is the dfs implementation of registry where data is written into
@@ -170,8 +170,8 @@ func (r *registry) DeleteImage(image string) error {
 	return nil
 }
 
-func (r *registry) SearchLibrary(library, tags ...string) (map[string]string, error) {
-	images, err := f.facade.SearchRegistryLibrary(ctx, library, tags)
+func (r *registry) SearchLibrary(library, tag) (map[string]string, error) {
+	images, err := f.facade.SearchRegistryLibrary(ctx, library, tag)
 	if err != nil {
 		return nil, err
 	}

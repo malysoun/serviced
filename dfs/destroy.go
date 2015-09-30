@@ -20,6 +20,7 @@ package dfs
 import (
 	"errors"
 
+	"github.com/control-center/serviced/commons/docker"
 	"github.com/control-center/serviced/domain/service"
 	"github.com/zenoss/glog"
 )
@@ -82,6 +83,7 @@ func (dfs *DistributedFilesystem) Destroy(tenantID string) error {
 			return err
 		}
 	}
+	dfs.deleteRegistryTag(tenantID, docker.DockerLatest)
 	// Remove the disk
 	if err := dfs.disk.Remove(tenantID); err != nil {
 		glog.Errorf("Could not remove volume %s: %s", tenantID, err)
