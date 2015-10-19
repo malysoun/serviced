@@ -462,8 +462,8 @@ func (m *Manager) Wipe() error {
 
 // Stop() stops all the containers currently registered to the *Manager
 func (m *Manager) Stop() error {
-	glog.V(2).Infof("manager sending stop request")
-	defer glog.V(2).Infof("received stop response")
+	glog.Infof("manager sending stop request")
+	defer glog.Infof("received stop response")
 	return m.makeRequest(managerOpStop)
 }
 

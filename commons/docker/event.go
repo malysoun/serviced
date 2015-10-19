@@ -242,6 +242,7 @@ func listenAndDispatch(c *Client, em *clientEventMonitor, r *io.PipeReader, w *i
 	for {
 		evt := <-listener
 		if evt != nil {
+			glog.Infof("listenAndDispatch: dispatching event %v", evt)
 			em.dispatch(evt)
 		}
 	}
