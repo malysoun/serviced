@@ -25,6 +25,7 @@ import (
 	"github.com/control-center/serviced/commons"
 	dockerclient "github.com/fsouza/go-dockerclient"
 	"github.com/zenoss/glog"
+	"runtime/debug"
 )
 
 const DockerLatest = "latest"
@@ -419,6 +420,8 @@ func (c *Container) Start(timeout time.Duration) error {
 // Stop stops the container specified by the id. If the container can't be stopped before the timeout
 // expires an error is returned.
 func (c *Container) Stop(timeout time.Duration) error {
+	glog.Infof("Container.Stop(%v) called.",timeout)
+	debug.PrintStack()
 	dc, err := getDockerClient()
 	if err != nil {
 		return err

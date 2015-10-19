@@ -56,6 +56,7 @@ import (
 	zkdocker "github.com/control-center/serviced/zzk/docker"
 	zkservice "github.com/control-center/serviced/zzk/service"
 	"github.com/control-center/serviced/zzk/virtualips"
+	"runtime/debug"
 )
 
 /*
@@ -250,7 +251,8 @@ func (a *HostAgent) StopService(state *servicestate.ServiceState) error {
 	if err != nil {
 		return err
 	}
-
+	glog.Infof("HostAgent.StopService(%v) called. Stopping service.\n", state)
+	debug.PrintStack()
 	return ctr.Stop(45 * time.Second)
 }
 
@@ -451,6 +453,7 @@ func (a *HostAgent) removeInstance(stateID string, ctr *docker.Container) {
 
 func updateInstance(state *servicestate.ServiceState, ctr *docker.Container) error {
 	if _, err := ctr.Inspect(); err != nil {
+		glog.Errorf("Container Inspect failed: %s", err)
 		return err
 	}
 	state.DockerID = ctr.ID
