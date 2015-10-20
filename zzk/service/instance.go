@@ -84,7 +84,7 @@ func removeInstance(conn client.Connection, serviceID, hostID, stateID string) e
 
 // updateInstance updates the service state and host instances
 func updateInstance(conn client.Connection, hostID, stateID string, mutate func(*HostState, *ss.ServiceState)) error {
-	glog.V(2).Infof("Updating instance %s", stateID)
+	glog.Infof("Updating instance %s", stateID)
 
 	hpath := hostpath(hostID, stateID)
 	var hsdata HostState

@@ -364,7 +364,9 @@ func (a *HostAgent) StartService(svc *service.Service, state *servicestate.Servi
 	})
 
 	if err := ctr.Start(time.Hour); err != nil {
+//	if err := fmt.Errorf("bogus start error"); err != nil {
 		glog.Errorf("Could not start service state %s (%s) for service %s (%s): %s", state.ID, ctr.ID, svc.Name, svc.ID, err)
+		started.Done()
 		a.removeInstance(state.ID, ctr)
 		return err
 	}
@@ -681,7 +683,6 @@ func configureContainer(a *HostAgent, client *ControlClient,
 		fmt.Sprintf("TZ=%s", os.Getenv("TZ")),
 		// CC-1384
 		fmt.Sprintf("DOCKER_14203_FIX=%d", time.Now().UnixNano()))
-
 	// add dns values to setup
 	for _, addr := range a.dockerDNS {
 		_addr := strings.TrimSpace(addr)

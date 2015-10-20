@@ -194,7 +194,7 @@ func (l *Leader) TakeLead() (echan <-chan client.Event, err error) {
 	} else {
 		l.c.Delete(path)
 	}
-	return toClientEvent(event), xlateError(err)
+	return toClientEvent(event, path, "TakeLead"), xlateError(err)
 }
 
 // ReleaseLead release the current leader role. It will return ErrNotLocked if

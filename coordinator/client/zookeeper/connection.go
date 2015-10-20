@@ -219,14 +219,22 @@ func (c *Connection) Delete(path string) error {
 	return xlateError(c.conn.Delete(join(c.basePath, path), stat.Version))
 }
 
-func toClientEvent(zkEvent <-chan zklib.Event) <-chan client.Event {
+func toClientEvent(zkEvent <-chan zklib.Event, path, caller string) <-chan client.Event {
 	//use buffered channel so go routine doesn't block in case the other end abandoned the channel
 	echan := make(chan client.Event, 1)
+
+	curTime := time.Now()
+	glog.Infof("%020d A started toClientEvent(%s) caller=%s",
+		curTime.UnixNano(), path, caller)
 	go func() {
 		e := <-zkEvent
+		glog.Infof("%020d B writing toClientEvent(%s) caller=%s",
+			curTime.UnixNano(), path, caller)
 		echan <- client.Event{
 			Type: client.EventType(e.Type),
 		}
+		glog.Infof("%020d C finished toClientEvent(%s) caller=%s",
+			curTime.UnixNano(), path, caller)
 	}()
 	return echan
 }
@@ -237,11 +245,12 @@ func (c *Connection) ChildrenW(path string) (children []string, event <-chan cli
 	if c.conn == nil {
 		return children, event, client.ErrConnectionClosed
 	}
-	children, _, zkEvent, err := c.conn.ChildrenW(join(c.basePath, path))
+	watchPath := join(c.basePath, path)
+	children, _, zkEvent, err := c.conn.ChildrenW(watchPath)
 	if err != nil {
 		return children, nil, xlateError(err)
 	}
-	return children, toClientEvent(zkEvent), xlateError(err)
+	return children, toClientEvent(zkEvent, watchPath, "ChildrenW"), xlateError(err)
 }
 
 // GetW gets the node at the given path and returns a channel to watch for events on that node.
@@ -265,7 +274,7 @@ func (c *Connection) getW(path string, node client.Node) (event <-chan client.Ev
 		err = client.ErrEmptyNode
 	}
 	node.SetVersion(stat)
-	return toClientEvent(zkEvent), xlateError(err)
+	return toClientEvent(zkEvent, path, "getW"), xlateError(err)
 }
 
 // Children returns the children of the node at the given path.

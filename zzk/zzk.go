@@ -194,7 +194,7 @@ func Listen(shutdown <-chan interface{}, ready chan<- error, conn client.Connect
 		}
 	}()
 
-	glog.V(1).Infof("Listener %s started; waiting for data", l.GetPath())
+	glog.Infof("Listener %s started; waiting for data", l.GetPath())
 	for {
 		nodes, event, err := conn.ChildrenW(l.GetPath())
 		if err != nil {
@@ -221,7 +221,7 @@ func Listen(shutdown <-chan interface{}, ready chan<- error, conn client.Connect
 		select {
 		case e := <-event:
 			if e.Type == client.EventNodeDeleted {
-				glog.V(1).Infof("Node %s has been removed; shutting down listener", l.GetPath())
+				glog.Infof("Node %s has been removed; shutting down listener", l.GetPath())
 				return
 			} else if e.Type == client.EventSession || e.Type == client.EventNotWatching {
 				glog.Warningf("Node %s had a reconnect; resetting listener", l.GetPath())
@@ -230,9 +230,9 @@ func Listen(shutdown <-chan interface{}, ready chan<- error, conn client.Connect
 					return
 				}
 			}
-			glog.V(4).Infof("Node %s received event %v", l.GetPath(), e)
+			glog.Infof("Node %s received event %v", l.GetPath(), e)
 		case node := <-done:
-			glog.V(3).Infof("Cleaning up %s", l.GetPath(node))
+			glog.Infof("Cleaning up %s", l.GetPath(node))
 			delete(processing, node)
 		case <-shutdown:
 			return
@@ -298,6 +298,7 @@ func Start(shutdown <-chan interface{}, conn client.Connection, master Listener,
 }
 
 func start(shutdown <-chan interface{}, conn client.Connection, listeners ...Listener) {
+	glog.Info("Starting new listener ...")
 	var count int
 	done := make(chan int)
 	defer func() {

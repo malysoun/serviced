@@ -184,6 +184,7 @@ func (ar *EndpointRegistry) RemoveItem(conn client.Connection, tenantID, endpoin
 func (ar *EndpointRegistry) WatchTenantEndpoint(conn client.Connection, tenantEndpointKey string,
 	processChildren ProcessChildrenFunc, errorHandler WatchError, cancel <-chan bool) error {
 
+	glog.Infof("WatchTenantEndpoint(%s)", tenantEndpointKey)
 	//TODO: Deal with cancel channel if this cares
 	return ar.WatchKey(conn, tenantEndpointKey, cancel, processChildren, errorHandler)
 }

@@ -411,7 +411,7 @@ func (c *Controller) watchRemotePorts() {
 
 		// setup watchers for each imported tenant endpoint
 		watchTenantEndpoints := func(tenantEndpointKey string) {
-			glog.V(2).Infof("  watching tenantEndpointKey: %s", tenantEndpointKey)
+			glog.Infof("  watching tenantEndpointKey: %s", tenantEndpointKey)
 			for {
 
 				glog.Infof("Starting watch for tenantEndpointKey %s: %v", tenantEndpointKey, err)
@@ -429,7 +429,7 @@ func (c *Controller) watchRemotePorts() {
 		}
 
 		for _, id := range tenantEndpointIDs {
-			glog.V(2).Infof("checking need to watch tenantEndpoint: %s %s", parentPath, id)
+			glog.Infof("checking need to watch tenantEndpoint: %s %s", parentPath, id)
 
 			// add watchers if they don't exist for a tenantid_application
 			// and if tenant-endpoint is an import
