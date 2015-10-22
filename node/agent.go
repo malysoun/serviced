@@ -457,7 +457,7 @@ func (a *HostAgent) removeInstance(stateID string, ctr *docker.Container) {
 		if output, err := exec.Command("docker", "logs", "--tail", "10000", ctr.ID).CombinedOutput(); err != nil {
 			glog.Errorf("Could not get logs for container %s", ctr.ID)
 		} else {
-			glog.Warningf("Last 10000 lines of container %s:\n %s", ctr.ID, string(output))
+			glog.Warningf("Last 10000 lines of container %s:\n<BEGIN_CONTAINER_LOG>\n%s\n<END_CONTAINER_LOG>\n", ctr.ID, string(output))
 		}
 	}
 	if ctr.IsRunning() {

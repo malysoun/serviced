@@ -306,6 +306,10 @@ func (c *Container) Commit(iidstr string, push bool) (*Image, error) {
 
 // Delete removes the container.
 func (c *Container) Delete(volumes bool) error {
+	glog.Infof("Container.Delete(%v) called.",volumes)
+	glog.Infof("<STACKTRACE>")
+	debug.PrintStack()
+	glog.Infof("<STACKTRACE>")
 	dc, err := getDockerClient()
 	if err != nil {
 		return err
@@ -329,6 +333,10 @@ func (c *Container) Export(outfile *os.File) error {
 // Kill sends a SIGKILL signal to the container. If the container is not started
 // no action is taken.
 func (c *Container) Kill() error {
+	glog.Infof("Container.Kill() called.")
+	glog.Infof("<STACKTRACE>")
+	debug.PrintStack()
+	glog.Infof("<STACKTRACE>")
 	dc, err := getDockerClient()
 	if err != nil {
 		return err
@@ -362,6 +370,10 @@ func (c *Container) OnEvent(event string, action ContainerActionFunc) error {
 
 // Restart stops and then restarts a container.
 func (c *Container) Restart(timeout time.Duration) error {
+	glog.Infof("Container.Restart(%v) called.",timeout)
+	glog.Infof("<STACKTRACE>")
+	debug.PrintStack()
+	glog.Infof("<STACKTRACE>")
 	dc, err := getDockerClient()
 	if err != nil {
 		return err
@@ -421,8 +433,10 @@ func (c *Container) Start() (bool, error) {
 // Stop stops the container specified by the id. If the container can't be stopped before the timeout
 // expires an error is returned.
 func (c *Container) Stop(timeout time.Duration) error {
-	glog.Infof("Container.Stop(%v) called.",timeout)
+	glog.Infof("Container.Stop(%v) called for container %s.",timeout, c.ID)
+	glog.Infof("<STACKTRACE>")
 	debug.PrintStack()
+	glog.Infof("</STACKTRACE>")
 	dc, err := getDockerClient()
 	if err != nil {
 		return err
@@ -432,7 +446,10 @@ func (c *Container) Stop(timeout time.Duration) error {
 
 // Wait blocks until the container stops or the timeout expires and then returns its exit code.
 func (c *Container) Wait(timeout time.Duration) (int, error) {
-
+	glog.Infof("Container.Wait(%v) called for container %s.",timeout, c.ID)
+	glog.Infof("<STACKTRACE>")
+	debug.PrintStack()
+	glog.Infof("</STACKTRACE>")
 	dc, err := getDockerClient()
 	if err != nil {
 		return -127, err
