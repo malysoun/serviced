@@ -27,6 +27,7 @@ import (
 	"github.com/control-center/serviced/utils"
 	dockerclient "github.com/fsouza/go-dockerclient"
 	"github.com/zenoss/glog"
+	"runtime/debug"
 )
 
 // ShellConfig is the deserialized object from the command-line
@@ -215,11 +216,14 @@ func (a *api) RunShell(config ShellConfig, stopChan chan struct{}) (int, error) 
 	glog.Infof("started command in container %s", cmd)
 	select {
 	case <-stopChan:
-		glog.Infof("received signal to stop, stopping container")
+		glog.Infof("received signal to stop, killing container %s", cfg.SaveAs)
+		glog.Infof("<STACKTRACE>")
+		debug.PrintStack()
+		glog.Infof("</STACKTRACE>")
 		killContainerOpts := dockerclient.KillContainerOptions{ID: cfg.SaveAs}
 		err = dockercli.KillContainer(killContainerOpts)
 		if err != nil {
-			glog.Errorf("unable to kill conatiner: %s", err)
+			glog.Errorf("unable to kill container: %s", err)
 		}
 		glog.Infof("killed container")
 		return 1, err
@@ -262,6 +266,10 @@ func (a *api) RunShell(config ShellConfig, stopChan chan struct{}) (int, error) 
 		}
 	} else {
 		// Delete the container
+		glog.Infof("Nonzero exitcode (%d) for container %s. Stopping and/or removing Container.", exitcode, container.ID)
+		glog.Infof("<STACKTRACE>")
+		debug.PrintStack()
+		glog.Infof("<STACKTRACE>")
 		if err := dockercli.StopContainer(container.ID, 10); err != nil {
 			if _, ok := err.(*dockerclient.ContainerNotRunning); !ok {
 				glog.Fatalf("failed to stop container: %s (%s)", container.ID, err)
