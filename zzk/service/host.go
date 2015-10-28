@@ -208,7 +208,7 @@ func (l *HostStateListener) Spawn(shutdown <-chan interface{}, stateID string) {
 		case service.SVCStop:
 			return
 		default:
-			glog.V(2).Infof("Unhandled state (%d) of instance %s for service %s (%s)", hs.DesiredState, stateID, svc.Name, svc.ID, err)
+			glog.Infof("Unhandled state (%d) of instance %s for service %s (%s)", hs.DesiredState, stateID, svc.Name, svc.ID, err)
 		}
 
 		select {
@@ -216,17 +216,17 @@ func (l *HostStateListener) Spawn(shutdown <-chan interface{}, stateID string) {
                        glog.Infof("Process ended for instance %s for service %s (%s)", stateID, svc.Name, svc.ID)
                        processDone = nil // CC-1341 - once the process exits, don't read this channel again
 		case e := <-hsEvt:
-			glog.V(3).Infof("Host instance %s for service %s (%s) received an event: %+v", stateID, svc.Name, svc.ID, e)
+			glog.Infof("Host instance %s for service %s (%s) received an event: %+v", stateID, svc.Name, svc.ID, e)
 			if e.Type == client.EventNodeDeleted {
 				return
 			}
 		case e := <-ssEvt:
-			glog.V(3).Infof("Service instance %s for service %s (%s) received an event: %+v", stateID, svc.Name, svc.ID, e)
+			glog.Infof("Service instance %s for service %s (%s) received an event: %+v", stateID, svc.Name, svc.ID, e)
 			if e.Type == client.EventNodeDeleted {
 				return
 			}
 		case <-shutdown:
-			glog.V(2).Infof("Host instance %s for service %s (%s) received signal to shutdown", stateID, svc.Name, svc.ID)
+			glog.Infof("Host instance %s for service %s (%s) received signal to shutdown", stateID, svc.Name, svc.ID)
 			return
 		}
 	}

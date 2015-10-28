@@ -215,6 +215,7 @@ func (l *ServiceListener) getServiceStates(svc *service.Service, stateIDs []stri
 	// figure out which hosts are still available
 	hosts, err := l.getActiveHosts()
 	if err != nil {
+		glog.Errorf("getActiveHosts() returned error: %s", err)
 		return nil, err
 	}
 	var rss []dao.RunningService
@@ -225,6 +226,8 @@ func (l *ServiceListener) getServiceStates(svc *service.Service, stateIDs []stri
 			if err != client.ErrNoNode {
 				glog.Errorf("Could not look up service instance %s for service %s (%s): %s", stateID, svc.Name, svc.ID, err)
 				return nil, err
+			} else {
+				glog.Warningf("Look up service instance %s for service %s (%s) returned client.ErrNoNode: %s", stateID, svc.Name, svc.ID, err)
 			}
 			continue
 		}
@@ -234,6 +237,9 @@ func (l *ServiceListener) getServiceStates(svc *service.Service, stateIDs []stri
 			if isActive, err = l.conn.Exists(hostpath(state.HostID, state.ID)); err != nil && err != client.ErrNoNode {
 				glog.Errorf("Could not look up host instance %s on host %s for service %s: %s", state.ID, state.HostID, state.ServiceID, err)
 				return nil, err
+			}
+			if err == client.ErrNoNode {
+				glog.Warningf("Look up host instance %s on host % for service %s returned client.ErrNoNode: %s", state.ID, state.HostID, state.ServiceID, err)
 			}
 		}
 		if !isActive {
