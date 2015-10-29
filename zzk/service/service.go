@@ -239,7 +239,7 @@ func (l *ServiceListener) getServiceStates(svc *service.Service, stateIDs []stri
 				return nil, err
 			}
 			if err == client.ErrNoNode {
-				glog.Warningf("Look up host instance %s on host % for service %s returned client.ErrNoNode: %s", state.ID, state.HostID, state.ServiceID, err)
+				glog.Warningf("Look up host instance %s on host %s for service %s returned client.ErrNoNode: %s", state.ID, state.HostID, state.ServiceID, err)
 			}
 		}
 		if !isActive {
