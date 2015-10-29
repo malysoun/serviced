@@ -309,7 +309,7 @@ func (c *Container) Delete(volumes bool) error {
 	glog.Infof("Container.Delete(%v) called.",volumes)
 	glog.Infof("<STACKTRACE>")
 	debug.PrintStack()
-	glog.Infof("<STACKTRACE>")
+	glog.Infof("</STACKTRACE>")
 	dc, err := getDockerClient()
 	if err != nil {
 		return err
@@ -336,7 +336,7 @@ func (c *Container) Kill() error {
 	glog.Infof("Container.Kill() called.")
 	glog.Infof("<STACKTRACE>")
 	debug.PrintStack()
-	glog.Infof("<STACKTRACE>")
+	glog.Infof("</STACKTRACE>")
 	dc, err := getDockerClient()
 	if err != nil {
 		return err
@@ -373,7 +373,7 @@ func (c *Container) Restart(timeout time.Duration) error {
 	glog.Infof("Container.Restart(%v) called.",timeout)
 	glog.Infof("<STACKTRACE>")
 	debug.PrintStack()
-	glog.Infof("<STACKTRACE>")
+	glog.Infof("</STACKTRACE>")
 	dc, err := getDockerClient()
 	if err != nil {
 		return err

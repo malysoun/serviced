@@ -260,7 +260,7 @@ func (a *api) RunShell(config ShellConfig, stopChan chan struct{}) (int, error) 
 		glog.Infof("Nonzero exitcode (%d) for container %s. Stopping and/or removing Container.", exitcode, container.ID)
 		glog.Infof("<STACKTRACE>")
 		debug.PrintStack()
-		glog.Infof("<STACKTRACE>")
+		glog.Infof("</STACKTRACE>")
 		if err := dockercli.StopContainer(container.ID, 10); err != nil {
 			if _, ok := err.(*dockerclient.ContainerNotRunning); !ok {
 				glog.Fatalf("failed to stop container: %s (%s)", container.ID, err)
