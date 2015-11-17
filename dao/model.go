@@ -44,20 +44,6 @@ type AssignmentRequest struct {
 	AutoAssignment bool
 }
 
-// An exposed service endpoint
-type ApplicationEndpoint struct {
-	ServiceID      string
-	Application    string
-	ContainerPort  uint16
-	HostPort       uint16
-	HostIP         string
-	ContainerIP    string
-	Protocol       string
-	VirtualAddress string
-	InstanceID     int
-	ProxyPort      uint16
-}
-
 // A request to deploy a service template
 type ServiceTemplateDeploymentRequest struct {
 	PoolID       string // Pool Id to deploy service into
@@ -93,6 +79,8 @@ type RunningService struct {
 	ParentServiceID   string
 	InstanceID        int
 	RAMCommitment     utils.EngNotation
+	CPUCommitment     uint64
+	HostPolicy        servicedefinition.HostPolicy
 	MonitoringProfile domain.MonitorProfile
 }
 
@@ -117,8 +105,9 @@ var (
 )
 
 type ServiceStatus struct {
-	State  servicestate.ServiceState
-	Status Status
+	State               servicestate.ServiceState
+	Status              Status
+	HealthCheckStatuses map[string]domain.HealthCheckStatus //map of healthcheck name --> healthcheck status
 }
 
 // BackupFile is the structure for backup file data
@@ -134,6 +123,8 @@ type BackupFile struct {
 type SnapshotInfo struct {
 	SnapshotID  string
 	Description string
+	Tags        []string
+	Created     time.Time
 }
 
 func (s SnapshotInfo) String() string {

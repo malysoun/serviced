@@ -3,29 +3,41 @@
 package server
 
 import (
-	"fmt"
-
-	"github.com/docker/docker/engine"
+	"errors"
+	"net"
+	"net/http"
 )
 
 // NewServer sets up the required Server and does protocol specific checking.
-func NewServer(proto, addr string, job *engine.Job) (Server, error) {
-	// Basic error and sanity checking
+func (s *Server) newServer(proto, addr string) ([]*HTTPServer, error) {
+	var (
+		ls []net.Listener
+	)
 	switch proto {
 	case "tcp":
-		return setupTcpHttp(addr, job)
+		l, err := s.initTCPSocket(addr)
+		if err != nil {
+			return nil, err
+		}
+		ls = append(ls, l)
+
 	default:
 		return nil, errors.New("Invalid protocol format. Windows only supports tcp.")
 	}
+
+	var res []*HTTPServer
+	for _, l := range ls {
+		res = append(res, &HTTPServer{
+			&http.Server{
+				Addr: addr,
+			},
+			l,
+		})
+	}
+	return res, nil
+
 }
 
-// Called through eng.Job("acceptconnections")
-func AcceptConnections(job *engine.Job) engine.Status {
-
-	// close the lock so the listeners start accepting connections
-	if activationLock != nil {
-		close(activationLock)
-	}
-
-	return engine.StatusOK
+func allocateDaemonPort(addr string) error {
+	return nil
 }

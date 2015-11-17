@@ -11,29 +11,35 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package agent implements a service that runs on a serviced node. It is
-// responsible for ensuring that a particular node is running the correct services
-// and reporting the state and health of those services back to the master
-// serviced.
+// +build integration
 
 package isvcs
 
 import (
+	"os"
+
+	"github.com/control-center/serviced/commons/docker"
 	"github.com/control-center/serviced/utils"
 
 	"testing"
 	"time"
 )
 
+func TestMain(m *testing.M) {
+	docker.StartKernel()
+	os.Exit(m.Run())
+}
+
 func TestManager(t *testing.T) {
 	testManager := NewManager(utils.LocalDir("images"), "/tmp")
 
 	if err := testManager.Start(); err != nil {
 		t.Logf("expected no error got %s", err)
-		t.Fail()
+		t.Fatal()
 	}
 
 	cd1 := IServiceDefinition{
+		ID:      "test1",
 		Name:    "test1",
 		Repo:    "ubuntu",
 		Tag:     "latest",
@@ -42,10 +48,11 @@ func TestManager(t *testing.T) {
 	container, err := NewIService(cd1)
 	if err != nil {
 		t.Logf("could not create container: %s", err)
-		t.Fail()
+		t.Fatal()
 	}
 
 	cd2 := IServiceDefinition{
+		ID:      "test2",
 		Name:    "test2",
 		Repo:    "ubuntu",
 		Tag:     "latest",
@@ -54,7 +61,7 @@ func TestManager(t *testing.T) {
 	container2, err := NewIService(cd2)
 	if err != nil {
 		t.Logf("could not create container: %s", err)
-		t.Fail()
+		t.Fatal()
 	}
 
 	if err := testManager.Register(container); err != nil {

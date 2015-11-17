@@ -23,13 +23,12 @@ package registry
 
 import (
 	"github.com/control-center/serviced/coordinator/client"
-	"github.com/control-center/serviced/dao"
+	"github.com/control-center/serviced/domain/applicationendpoint"
 	"github.com/control-center/serviced/validation"
 	"github.com/zenoss/glog"
 
 	"fmt"
 	"path"
-	"time"
 )
 
 const (
@@ -43,13 +42,13 @@ func vhostPath(nodes ...string) string {
 }
 
 // NewVhostEndpoint creates a new VhostEndpoint
-func NewVhostEndpoint(endpointName string, appEndpoint dao.ApplicationEndpoint) VhostEndpoint {
+func NewVhostEndpoint(endpointName string, appEndpoint applicationendpoint.ApplicationEndpoint) VhostEndpoint {
 	return VhostEndpoint{ApplicationEndpoint: appEndpoint, EndpointName: endpointName}
 }
 
 // VhostEndpoint contains information about a vhost
 type VhostEndpoint struct {
-	dao.ApplicationEndpoint
+	applicationendpoint.ApplicationEndpoint
 	EndpointName string
 	version      interface{}
 }
@@ -67,26 +66,6 @@ type VhostRegistry struct {
 
 // VHostRegistry ensures the vhost registry and returns the VhostRegistry type
 func VHostRegistry(conn client.Connection) (*VhostRegistry, error) {
-	path := vhostPath()
-
-	timeout := time.After(time.Second * 60)
-	var err error
-	for {
-		err = conn.CreateDir(path)
-		if err == client.ErrNodeExists || err == nil {
-			err = nil
-			break
-		}
-		select {
-		case <-timeout:
-			break
-		default:
-		}
-	}
-	if err != nil {
-		glog.Errorf("error with CreateDir(%s) %+v", path, err)
-		return nil, fmt.Errorf("could not create dir %q: %s", path, err)
-	}
 	return &VhostRegistry{registryType{getPath: vhostPath, ephemeral: true}}, nil
 }
 
@@ -143,7 +122,7 @@ func (vr *VhostRegistry) GetVHostKeyChildren(conn client.Connection, vhostKey st
 }
 
 //WatchVhostEndpoint watch a specific VhostEnpoint
-func (vr *VhostRegistry) WatchVhostEndpoint(conn client.Connection, path string, cancel <-chan bool, processVhostEdnpoint func(conn client.Connection,
+func (vr *VhostRegistry) WatchVhostEndpoint(conn client.Connection, path string, cancel <-chan interface{}, processVhostEdnpoint func(conn client.Connection,
 	node *VhostEndpoint), errorHandler WatchError) error {
 
 	processNode := func(conn client.Connection, node client.Node) {

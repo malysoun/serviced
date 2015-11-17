@@ -48,6 +48,8 @@
   }
 }
 
+html, body, .container { height: 100%; }
+
 body {
     padding: 20px;
     color: #666;
@@ -226,9 +228,9 @@ table .btn,
     margin-left: 15px;
 }
 
-.navbar-zen button,
-.navbar-zen a {
-    padding: 15px 8px;
+.navbar-zen .main-nav button,
+.navbar-zen .main-nav a {
+    padding: 15px;
     margin: 0px;
     border: 0px;
     color: #CCC;
@@ -236,19 +238,19 @@ table .btn,
     text-shadow: 1px 1px 2px #414141;
 }
 
-.navbar-zen a.glyphicon {
+.navbar-zen .main-nav a.glyphicon {
     top: 0px;
 }
 
-.navbar-zen li.active > button,
-.navbar-zen li.active > a {
+.navbar-zen .main-nav li.active > button,
+.navbar-zen .main-nav li.active > a {
     color: #F6F6F6;
     background-color: #515151;
 }
 
-.navbar-zen a.navbar-brand:hover,
-.navbar-zen li > button:hover,
-.navbar-zen li > a:hover {
+.navbar-zen .main-nav a.navbar-brand:hover,
+.navbar-zen .main-nav li > button:hover,
+.navbar-zen .main-nav li > a:hover {
     background-color: #969696;
     color: #f6f6f6;
 }
@@ -273,14 +275,14 @@ table .btn,
     z-index: 1000;
 }
 
-.navbar-zen .navbar-right button{
+.navbar-zen .main-nav .navbar-right button{
     font-weight: normal;
     color: #EEE;
     font-size: .9em;
     line-height: 1.6em;
 }
 
-.navbar-zen .navbar-right .vr{
+.navbar-zen .main-nav .navbar-right .vr{
     font-weight: normal;
     color: #888;
     font-size: .9em;
@@ -299,7 +301,7 @@ table .btn,
 }
 
 .navbar {
-    margin: 10px 0 0 0;
+    margin: 10px 0 30px 0;
     border-radius: 0;
     border: 0;
 }
@@ -354,7 +356,6 @@ table .btn,
 
 .details {
     background-color: #f5f5f5;
-    margin-bottom: 30px;
 }
 
 .breadcrumb {
@@ -867,7 +868,6 @@ input.startup {
   border: solid 1px white;
   font: 10px sans-serif;
   line-height: 12px;
-  overflow: hidden;
   position: absolute;
   text-indent: 2px;
 }
@@ -879,60 +879,92 @@ input.startup {
 
 /* dagre-d3 related below  */
 
-svg {
+.service_map_wrap {
+    position: relative;
+    height: calc(100% - 140px);
+}
+.service_map_wrap .service_map,
+.service_map_wrap .service_map_loader {
+  position: absolute;
+  top: 0;
+  left: 0;
   border: 0px;
-  height: 600px;
-}
-
-svg.tall {
-  height: 1200px;
   width: 1140px;
+  height: 100%;
+  border: solid #CCC 1px;
+}
+.service_map_wrap .service_map_loader {
+    background-color: rgba(255,255,255,0.9);
+}
+.service_map_loader .message {
+    text-align: center;
+    position: relative;
+    top: calc(50%);
+    transform: translateY(-50%);
 }
 
-rect {
+.last_update {
+    font-size: 0.9em;
+    color: #CCC;
+    text-align: right;
+}
+.last_update strong {
+    font-weight: bold;
+    color: #888;
+}
+
+.service_map rect {
   fill: #fff;
 }
 
-.node rect {
-  stroke-width: 2px;
-  stroke: #333;
-  fill: none;
+.service_map .node rect {
+  stroke-width: 0;
+  fill: #EEE;
 }
 
-.edge rect {
+.service_map .edgePath rect {
   fill: #fff;
 }
 
-.edge path {
+.service_map .edgePath path {
   fill: none;
-  stroke: #333;
-  stroke-width: 1.5px;
+  stroke: #888;
+  stroke-width: 1px;
 }
 
-.node.host rect {
-    fill: #B89300;
-    stroke: black;
+.service_map .edgePath marker path {
+    fill: #888;
 }
-.node.host text {
+
+.service_map .node.host rect {
+    fill: #0084DB;
+    border-radius: 50%;
+}
+.service_map .node.host text {
     fill: white;
 }
 
-.node.service rect {
-    fill: #29A3CC;
-    stroke: black;
+.service_map .node.service.running rect {
+    fill: #0084DB;
+}
+.service_map .node.service.running.bad rect {
+    fill: #9C1200;
 }
 
-.node.service.notrunning rect {
-    fill: #AAAAAA;
-    stroke: black;
+.service_map .node.service rect {
+    fill: #AAA;
 }
 
-.node.service.meta rect {
-    fill: #19627A;
-    stroke: black;
+.service_map .node.service.meta rect {
+    fill: white;
+    stroke: #999;
+    stroke-width: 1px;
+}
+.service_map .node.service.meta text {
+    fill: #777;
 }
 
-.node.service text {
+.service_map .node.service text {
     fill: white;
 }
 
@@ -1451,7 +1483,7 @@ input[type=file] {
 
 .table-collapse {
     font-size: 8px;
-    padding: 0px 5px 5px 5px;
+    padding: 0px 3px 3px 3px;
     vertical-align: middle;
     cursor: pointer;
 }
@@ -1742,12 +1774,11 @@ input[type=file] {
 .jelly-table .loader{
     opacity: 1;
     width: 100%;
+    height: calc(100% - 59px);
     position: absolute;
     margin: auto;
     top: 30px;
     left: 0;
-    bottom: 41px;
-    right: 0;
     background: rgba(255,255,255,.9) center center url("/static/img/loading.gif") no-repeat;
     text-align: center;
     overflow: hidden;
@@ -1765,10 +1796,6 @@ input[type=file] {
 }
 .jelly-table .loader:hover td {
     background-color: transparent;
-}
-.jelly-table .loaderSpacer{
-    width: 100%;
-    height: 45px;
 }
 
 .jelly-table .noData {
@@ -1795,6 +1822,10 @@ input[type=file] {
 }
 .jelly-table .statusBar .entry strong {
     color: #999;
+}
+
+.jelly-table .sort-indicator {
+    display: inline-block;
 }
 
 /* hide pagination */
@@ -1826,4 +1857,61 @@ input[type=file] {
 
 .overcomText.bad {
     color: #9C1200;
+}
+
+
+body.loading {
+    overflow: hidden
+}
+
+.loading_wrapper {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: fixed;
+    top: 0;
+    left: 0;
+    z-index: 1001;
+    width: 100%;
+    height: 100%;
+    background-color: #8EA9D1;
+    text-align: center;
+    opacity: 1;
+    font-family: Verdana, Arial, Helvetica, sans-serif;
+
+    transition: opacity 0.2s ease-in;
+}
+.loading_wrapper .animated_logo {
+    transition: transform 0.5s cubic-bezier(.42,-0.47,.38,1.33);
+}
+.loading_wrapper.hide_it {
+    opacity: 0;
+}
+.loading_wrapper.hide_it .animated_logo {
+    transform: scale(0.2, 0.2);
+}
+.loading_wrapper .loading_body {
+    margin-top: -5px;
+    font-weight: bold;
+    font-size: 1.4em;
+}
+
+body.no-animation * {
+    transition-property: none !important;
+    -o-transition-property: none !important;
+    -moz-transition-property: none !important;
+    -ms-transition-property: none !important;
+    -webkit-transition-property: none !important;
+
+    transform: none !important;
+    -o-transform: none !important;
+    -moz-transform: none !important;
+    -ms-transform: none !important;
+    -webkit-transform: none !important;
+
+    animation: none !important;
+    -o-animation: none !important;
+    -moz-animation: none !important;
+    -ms-animation: none !important;
+    -webkit-animation: none !important;
 }

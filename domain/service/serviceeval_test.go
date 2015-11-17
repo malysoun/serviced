@@ -11,6 +11,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// +build integration
+
 // Package agent implements a service that runs on a serviced node. It is
 // responsible for ensuring that a particular node is running the correct services
 // and reporting the state and health of those services back to the master
@@ -171,14 +173,13 @@ var endpoint_testcases = []struct {
 		DesiredState:   int(SVCStop),
 		Launch:         "auto",
 		Endpoints: []ServiceEndpoint{
-			ServiceEndpoint{
-				EndpointDefinition: servicedefinition.EndpointDefinition{
+			BuildServiceEndpoint(
+				servicedefinition.EndpointDefinition{
 					Purpose:     "something",
 					Protocol:    "tcp",
 					PortNumber:  1000,
 					Application: "{{(context (parent .)).RemoteHost}}_collector",
-				},
-			},
+				}),
 		},
 		ParentServiceID: "100",
 		CreatedAt:       time.Now(),
@@ -467,11 +468,10 @@ func (s *S) TestIllegalTemplates(t *C) {
 		//endpoint
 		Service{
 			Endpoints: []ServiceEndpoint{
-				ServiceEndpoint{
-					EndpointDefinition: servicedefinition.EndpointDefinition{
+				BuildServiceEndpoint(
+					servicedefinition.EndpointDefinition{
 						Application: "{{illegal_endpoint}}",
-					},
-				},
+					}),
 			},
 		},
 		//log config - path

@@ -11,6 +11,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// +build integration,!quick
+
 package docker
 
 import (
@@ -23,12 +25,18 @@ import (
 	dockerclient "github.com/fsouza/go-dockerclient"
 )
 
+func TestMain(m *testing.M) {
+	StartKernel()
+	defer func() { done <- struct{}{} }()
+	os.Exit(m.Run())
+}
+
 func TestContainerCommit(t *testing.T) {
 	cd := &ContainerDefinition{
 		dockerclient.CreateContainerOptions{
 			Config: &dockerclient.Config{
 				Image: "ubuntu:latest",
-				Cmd:   []string{"watch", "ls"},
+				Cmd:   []string{"sleep", "3600"},
 			},
 		},
 		dockerclient.HostConfig{},
@@ -45,7 +53,7 @@ func TestContainerCommit(t *testing.T) {
 		sc <- struct{}{}
 	})
 
-	err = ctr.Start(30 * time.Second)
+	err = ctr.Start()
 	if err != nil {
 		t.Fatal("can't start container: ", err)
 	}
@@ -73,7 +81,7 @@ func TestOnContainerStart(t *testing.T) {
 		dockerclient.CreateContainerOptions{
 			Config: &dockerclient.Config{
 				Image: "ubuntu:latest",
-				Cmd:   []string{"watch", "ls"},
+				Cmd:   []string{"sleep", "3600"},
 			},
 		},
 		dockerclient.HostConfig{},
@@ -90,7 +98,7 @@ func TestOnContainerStart(t *testing.T) {
 		sc <- struct{}{}
 	})
 
-	err = ctr.Start(30 * time.Second)
+	err = ctr.Start()
 	if err != nil {
 		t.Fatal("can't start container: ", err)
 	}
@@ -114,7 +122,7 @@ func TestOnContainerStop(t *testing.T) {
 		dockerclient.CreateContainerOptions{
 			Config: &dockerclient.Config{
 				Image: "ubuntu:latest",
-				Cmd:   []string{"watch", "ls"},
+				Cmd:   []string{"sleep", "3600"},
 			},
 		},
 		dockerclient.HostConfig{},
@@ -140,7 +148,7 @@ func TestOnContainerStop(t *testing.T) {
 
 	select {
 	case exitcode := <-ec:
-		t.Logf("Receieved exit code: %d", exitcode)
+		t.Logf("Received exit code: %d", exitcode)
 	case <-time.After(30 * time.Second):
 		t.Fatal("Timed out waiting for event")
 	}
@@ -151,7 +159,7 @@ func TestCancelOnEvent(t *testing.T) {
 		dockerclient.CreateContainerOptions{
 			Config: &dockerclient.Config{
 				Image: "ubuntu:latest",
-				Cmd:   []string{"watch", "ls"},
+				Cmd:   []string{"sleep", "3600"},
 			},
 		},
 		dockerclient.HostConfig{},
@@ -174,7 +182,7 @@ func TestCancelOnEvent(t *testing.T) {
 
 	ctr.CancelOnEvent(Start)
 
-	ctr.Start(1 * time.Second)
+	ctr.Start()
 
 	select {
 	case <-ec:
@@ -192,7 +200,7 @@ func TestRestartContainer(t *testing.T) {
 		dockerclient.CreateContainerOptions{
 			Config: &dockerclient.Config{
 				Image: "ubuntu:latest",
-				Cmd:   []string{"watch", "ls"},
+				Cmd:   []string{"sleep", "3600"},
 			},
 		},
 		dockerclient.HostConfig{},
@@ -242,7 +250,7 @@ func TestListContainers(t *testing.T) {
 		dockerclient.CreateContainerOptions{
 			Config: &dockerclient.Config{
 				Image: "ubuntu:latest",
-				Cmd:   []string{"watch", "ls"},
+				Cmd:   []string{"sleep", "3600"},
 			},
 		},
 		dockerclient.HostConfig{},
@@ -296,7 +304,7 @@ func TestWaitForContainer(t *testing.T) {
 		dockerclient.CreateContainerOptions{
 			Config: &dockerclient.Config{
 				Image: "ubuntu:latest",
-				Cmd:   []string{"watch", "ls"},
+				Cmd:   []string{"sleep", "3600"},
 			},
 		},
 		dockerclient.HostConfig{},
@@ -338,7 +346,7 @@ func TestInspectContainer(t *testing.T) {
 		dockerclient.CreateContainerOptions{
 			Config: &dockerclient.Config{
 				Image: "ubuntu:latest",
-				Cmd:   []string{"watch", "ls"},
+				Cmd:   []string{"sleep", "3600"},
 			},
 		},
 		dockerclient.HostConfig{},
@@ -360,7 +368,7 @@ func TestInspectContainer(t *testing.T) {
 		sc <- struct{}{}
 	})
 
-	if err := ctr.Start(1 * time.Second); err != nil {
+	if err := ctr.Start(); err != nil {
 		t.Fatal("can't start container: ", err)
 	}
 
@@ -390,7 +398,7 @@ func TestRepeatedStart(t *testing.T) {
 		dockerclient.CreateContainerOptions{
 			Config: &dockerclient.Config{
 				Image: "ubuntu:latest",
-				Cmd:   []string{"watch", "ls"},
+				Cmd:   []string{"sleep", "3600"},
 			},
 		},
 		dockerclient.HostConfig{},
@@ -407,7 +415,7 @@ func TestRepeatedStart(t *testing.T) {
 		sc <- struct{}{}
 	})
 
-	if err := ctr.Start(1 * time.Second); err != nil {
+	if err := ctr.Start(); err != nil {
 		t.Fatal("can't start container: ", err)
 	}
 
@@ -418,7 +426,7 @@ func TestRepeatedStart(t *testing.T) {
 		t.Fatal("timed out waiting for container to start")
 	}
 
-	if err := ctr.Start(1 * time.Second); err == nil {
+	if err := ctr.Start(); err == nil {
 		t.Fatal("expecting ErrAlreadyStarted")
 	}
 
@@ -431,7 +439,7 @@ func TestNewContainerOnCreatedAndStartedActions(t *testing.T) {
 		dockerclient.CreateContainerOptions{
 			Config: &dockerclient.Config{
 				Image: "ubuntu:latest",
-				Cmd:   []string{"watch", "ls"},
+				Cmd:   []string{"sleep", "3600"},
 			},
 		},
 		dockerclient.HostConfig{},
@@ -490,7 +498,7 @@ func TestNewContainerOnCreatedAction(t *testing.T) {
 		dockerclient.CreateContainerOptions{
 			Config: &dockerclient.Config{
 				Image: "ubuntu:latest",
-				Cmd:   []string{"watch", "ls"},
+				Cmd:   []string{"sleep", "3600"},
 			},
 		},
 		dockerclient.HostConfig{},
@@ -536,7 +544,7 @@ func TestNewContainerOnStartedAction(t *testing.T) {
 		dockerclient.CreateContainerOptions{
 			Config: &dockerclient.Config{
 				Image: "ubuntu:latest",
-				Cmd:   []string{"watch", "ls"},
+				Cmd:   []string{"sleep", "3600"},
 			},
 		},
 		dockerclient.HostConfig{},
@@ -583,7 +591,7 @@ func TestFindContainer(t *testing.T) {
 		dockerclient.CreateContainerOptions{
 			Config: &dockerclient.Config{
 				Image: "ubuntu:latest",
-				Cmd:   []string{"watch", "ls"},
+				Cmd:   []string{"sleep", "3600"},
 			},
 		},
 		dockerclient.HostConfig{},
@@ -625,7 +633,7 @@ func TestContainerExport(t *testing.T) {
 		dockerclient.CreateContainerOptions{
 			Config: &dockerclient.Config{
 				Image: "ubuntu:latest",
-				Cmd:   []string{"watch", "ls"},
+				Cmd:   []string{"sleep", "3600"},
 			},
 		},
 		dockerclient.HostConfig{},

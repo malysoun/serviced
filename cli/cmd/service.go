@@ -16,12 +16,12 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
-	"net/url"
 	"os"
 	"os/exec"
 	"os/signal"
 	"path"
 	"sort"
+	"strconv"
 	"strings"
 	"syscall"
 	"text/template"
@@ -31,7 +31,6 @@ import (
 	"github.com/control-center/serviced/cli/api"
 	dockerclient "github.com/control-center/serviced/commons/docker"
 	"github.com/control-center/serviced/dao"
-	"github.com/control-center/serviced/domain/host"
 	"github.com/control-center/serviced/domain/service"
 	"github.com/control-center/serviced/node"
 	"github.com/control-center/serviced/utils"
@@ -42,16 +41,6 @@ var unstartedTime = time.Date(1999, 12, 31, 23, 59, 0, 0, time.UTC)
 
 // Initializer for serviced service subcommands
 func (c *ServicedCli) initService() {
-
-	defaultMetricsForwarderPort := ":22350"
-	if cpConsumerUrl, err := url.Parse(os.Getenv("CONTROLPLANE_CONSUMER_URL")); err == nil {
-		hostParts := strings.Split(cpConsumerUrl.Host, ":")
-		if len(hostParts) == 2 {
-			defaultMetricsForwarderPort = ":" + hostParts[1]
-		}
-	}
-
-	rpcPort := c.config.IntVal("RPC_PORT", defaultRPCPort)
 
 	c.app.Commands = append(c.app.Commands, cli.Command{
 		Name:        "service",
@@ -77,7 +66,7 @@ func (c *ServicedCli) initService() {
 				Action:      c.cmdServiceStatus,
 				Flags: []cli.Flag{
 					cli.BoolFlag{"ascii, a", "use ascii characters for service tree (env SERVICED_TREE_ASCII=1 will default to ascii)"},
-					cli.StringFlag{"show-fields", "Name,ServiceID,Status,Uptime,RAM,Cur/Max/Avg,Hostname,InSync,DockerID", "Comma-delimited list describing which fields to display"},
+					cli.StringFlag{"show-fields", "Name,ServiceID,Status,HC Fail,Healthcheck,Healthcheck Status,Uptime,RAM,Cur/Max/Avg,Hostname,InSync,DockerID", "Comma-delimited list describing which fields to display"},
 				},
 			}, {
 				Name:        "add",
@@ -158,27 +147,6 @@ func (c *ServicedCli) initService() {
 					cli.BoolTFlag{"auto-launch", "Recursively schedules child services"},
 				},
 			}, {
-				Name:         "proxy",
-				Usage:        "Starts a server proxy for a container",
-				Description:  "serviced service proxy SERVICEID INSTANCEID COMMAND",
-				BashComplete: c.printServicesFirst,
-				Before:       c.cmdServiceProxy,
-				Flags: []cli.Flag{
-					cli.StringFlag{"forwarder-binary", "/usr/local/serviced/resources/logstash/logstash-forwarder", "path to the logstash-forwarder binary"},
-					cli.StringFlag{"forwarder-config", "/etc/logstash-forwarder.conf", "path to the logstash-forwarder config file"},
-					cli.IntFlag{"muxport", 22250, "multiplexing port to use"},
-					cli.StringFlag{"keyfile", "", "path to private key file (defaults to compiled in private keys"},
-					cli.StringFlag{"certfile", "", "path to public certificate file (defaults to compiled in public cert)"},
-					cli.StringFlag{"endpoint", api.GetGateway(rpcPort), "serviced endpoint address"},
-					cli.BoolTFlag{"autorestart", "restart process automatically when it finishes"},
-					cli.BoolFlag{"disable-metric-forwarding", "disable forwarding of metrics for this container"},
-					cli.StringFlag{"metric-forwarder-port", defaultMetricsForwarderPort, "the port the container processes send performance data to"},
-					cli.BoolTFlag{"logstash", "forward service logs via logstash-forwarder"},
-					cli.StringFlag{"logstash-idle-flush-time", "5s", "time duration for logstash to flush log messages"},
-					cli.StringFlag{"logstash-settle-time", "0s", "time duration to wait for logstash to flush log messages before closing"},
-					cli.StringFlag{"virtual-address-subnet", c.config.StringVal("VIRTUAL_ADDRESS_SUBNET", "10.3"), "/16 subnet for virtual addresses"},
-				},
-			}, {
 				Name:         "shell",
 				Usage:        "Starts a service instance",
 				Description:  "serviced service shell SERVICEID [COMMAND]",
@@ -228,6 +196,9 @@ func (c *ServicedCli) initService() {
 				Description:  "serviced service list-snapshots SERVICEID",
 				BashComplete: c.printServicesFirst,
 				Action:       c.cmdServiceListSnapshots,
+				Flags: []cli.Flag{
+					cli.BoolFlag{"show-tags, t", "shows the tags associated with each snapshot"},
+				},
 			}, {
 				Name:         "snapshot",
 				Usage:        "Takes a snapshot of the service",
@@ -236,6 +207,18 @@ func (c *ServicedCli) initService() {
 				Action:       c.cmdServiceSnapshot,
 				Flags: []cli.Flag{
 					cli.StringFlag{"description, d", "", "a description of the snapshot"},
+					cli.StringFlag{"tag, t", "", "a unique tag for the snapshot"},
+				},
+			}, {
+				Name:         "endpoints",
+				Usage:        "List the endpoints defined for the service",
+				Description:  "serviced service endpoints SERVICEID",
+				BashComplete: c.printServicesFirst,
+				Action:       c.cmdServiceEndpoints,
+				Flags: []cli.Flag{
+					cli.BoolFlag{"imports, i", "include only imported endpoints"},
+					cli.BoolFlag{"all, a", "include all endpoints (imports and exports)"},
+					cli.BoolFlag{"verify, v", "verify endpoints"},
 				},
 			},
 		},
@@ -427,7 +410,7 @@ func (c *ServicedCli) searchForService(keyword string) (*service.Service, error)
 }
 
 // cmdSetTreeCharset sets the default behavior for --ASCII, SERVICED_TREE_ASCII, and stdout pipe
-func cmdSetTreeCharset(ctx *cli.Context, config ConfigReader) {
+func cmdSetTreeCharset(ctx *cli.Context, config utils.ConfigReader) {
 	if ctx.Bool("ascii") {
 		treeCharset = treeASCII
 	} else if !utils.Isatty(os.Stdout) {
@@ -441,6 +424,30 @@ func cmdSetTreeCharset(ctx *cli.Context, config ConfigReader) {
 func (c *ServicedCli) cmdServiceStatus(ctx *cli.Context) {
 	var states map[string]map[string]interface{}
 	var err error
+
+	//Determine whether to show healthcheck fields and rows based on user input:
+	//   By default, we only show individual healthcheck rows if a specific service is requested
+	//   However, we will show them if the user explicitly requests the "Healthcheck" or "Healthcheck Status" fields
+	showIndividualHealthChecks := false       //whether or not to add rows to the table for individual health checks.
+	fieldsToShow := ctx.String("show-fields") //we will modify this if not user-set
+
+	if !ctx.IsSet("show-fields") {
+		//only show the appropriate health fields based on arguments
+		if len(ctx.Args()) > 0 { //don't show "HC Fail"
+			fieldsToShow = strings.Replace(fieldsToShow, "HC Fail,", "", -1)
+			fieldsToShow = strings.Replace(fieldsToShow, ",HC Fail", "", -1) //in case it was last in the list
+		} else { //don't show "Healthcheck" or "Healthcheck Status"
+
+			fieldsToShow = strings.Replace(fieldsToShow, "Healthcheck Status,", "", -1)
+			fieldsToShow = strings.Replace(fieldsToShow, ",Healthcheck Status", "", -1) //in case it was last in the list
+
+			fieldsToShow = strings.Replace(fieldsToShow, "Healthcheck,", "", -1)
+			fieldsToShow = strings.Replace(fieldsToShow, ",Healthcheck", "", -1) //in case it was last in the list
+		}
+	}
+
+	//set showIndividualHealthChecks based on the fields
+	showIndividualHealthChecks = strings.Contains(fieldsToShow, "Healthcheck") || strings.Contains(fieldsToShow, "Healthcheck Status")
 
 	if len(ctx.Args()) > 0 {
 		svc, err := c.searchForService(ctx.Args()[0])
@@ -465,7 +472,7 @@ func (c *ServicedCli) cmdServiceStatus(ctx *cli.Context) {
 
 	cmdSetTreeCharset(ctx, c.config)
 
-	t := NewTable(ctx.String("show-fields"))
+	t := NewTable(fieldsToShow)
 	childmap := make(map[string][]string)
 	for id, state := range states {
 		parent := fmt.Sprintf("%v", state["ParentID"])
@@ -481,14 +488,17 @@ func (c *ServicedCli) cmdServiceStatus(ctx *cli.Context) {
 			defer t.DedentRow()
 			for _, rowid := range childmap[root] {
 				row := states[rowid]
-				t.AddRow(row)
-				nextRoot := fmt.Sprintf("%v", row["ServiceID"])
+				if _, ok := row["Healthcheck"]; !ok || showIndividualHealthChecks { //if this is a healthcheck row, only include it if showIndividualHealthChecks is true
+					t.AddRow(row)
+				}
+
+				nextRoot := rowid
 				addRows(nextRoot)
 			}
 		}
 	}
 	addRows("")
-	t.Padding = 6
+	t.Padding = 3
 	t.Print()
 	return
 }
@@ -877,46 +887,6 @@ func sendLogMessage(lbClientPort string, serviceLogInfo node.ServiceLogInfo) err
 	return client.SendLogMessage(serviceLogInfo, nil)
 }
 
-// serviced service proxy SERVICE_ID INSTANCEID COMMAND
-func (c *ServicedCli) cmdServiceProxy(ctx *cli.Context) error {
-	if len(ctx.Args()) < 3 {
-		fmt.Printf("Incorrect Usage.\n\n")
-		return nil
-	}
-
-	args := ctx.Args()
-	options := api.ControllerOptions{
-		MuxPort:                 ctx.GlobalInt("muxport"),
-		TLS:                     true,
-		KeyPEMFile:              ctx.GlobalString("keyfile"),
-		CertPEMFile:             ctx.GlobalString("certfile"),
-		ServicedEndpoint:        ctx.GlobalString("endpoint"),
-		Autorestart:             ctx.GlobalBool("autorestart"),
-		MetricForwarderPort:     ctx.GlobalString("metric-forwarder-port"),
-		Logstash:                ctx.GlobalBool("logstash"),
-		LogstashIdleFlushTime:   ctx.GlobalString("logstash-idle-flush-time"),
-		LogstashSettleTime:      ctx.GlobalString("logstash-settle-time"),
-		LogstashBinary:          ctx.GlobalString("forwarder-binary"),
-		LogstashConfig:          ctx.GlobalString("forwarder-config"),
-		VirtualAddressSubnet:    ctx.GlobalString("virtual-address-subnet"),
-		ServiceID:               args[0],
-		InstanceID:              args[1],
-		Command:                 args[2:],
-		MetricForwardingEnabled: !ctx.GlobalBool("disable-metric-forwarding"),
-	}
-
-	if err := c.driver.StartProxy(options); err != nil {
-		sendLogMessage(options.ServicedEndpoint,
-			node.ServiceLogInfo{
-				ServiceID: options.ServiceID,
-				Message:   "container controller terminated with: " + err.Error(),
-			})
-		fmt.Fprintln(os.Stderr, err)
-	}
-
-	return fmt.Errorf("serviced service proxy")
-}
-
 // serviced service shell [--saveas SAVEAS]  [--interactive, -i] SERVICEID [COMMAND]
 func (c *ServicedCli) cmdServiceShell(ctx *cli.Context) error {
 	args := ctx.Args()
@@ -1105,13 +1075,9 @@ func (c *ServicedCli) searchForRunningService(keyword string) (*dao.RunningServi
 		return nil, err
 	}
 
-	hosts, err := c.driver.GetHosts()
+	hostmap, err := c.driver.GetHostMap()
 	if err != nil {
 		return nil, err
-	}
-	hostmap := make(map[string]host.Host)
-	for _, host := range hosts {
-		hostmap[host.ID] = host
 	}
 
 	pathmap, err := c.buildRunningServicePaths(rss)
@@ -1194,13 +1160,9 @@ func (c *ServicedCli) cmdServiceAttach(ctx *cli.Context) error {
 	}
 
 	if rs.HostID != myHostID {
-		hosts, err := c.driver.GetHosts()
+		hostmap, err := c.driver.GetHostMap()
 		if err != nil {
 			return err
-		}
-		hostmap := make(map[string]host.Host)
-		for _, host := range hosts {
-			hostmap[host.ID] = host
 		}
 
 		cmd := []string{"/usr/bin/ssh", "-t", hostmap[rs.HostID].IPAddr, "--", "serviced", "--endpoint", api.GetOptionsRPCEndpoint(), "service", "attach", args[0]}
@@ -1304,13 +1266,9 @@ func (c *ServicedCli) cmdServiceLogs(ctx *cli.Context) error {
 	}
 
 	if rs.HostID != myHostID {
-		hosts, err := c.driver.GetHosts()
+		hostmap, err := c.driver.GetHostMap()
 		if err != nil {
 			return err
-		}
-		hostmap := make(map[string]host.Host)
-		for _, host := range hosts {
-			hostmap[host.ID] = host
 		}
 
 		cmd := []string{"/usr/bin/ssh", "-t", hostmap[rs.HostID].IPAddr, "--", "serviced", "--endpoint", api.GetOptionsRPCEndpoint(), "service", "logs", args[0]}
@@ -1335,8 +1293,9 @@ func (c *ServicedCli) cmdServiceLogs(ctx *cli.Context) error {
 	return fmt.Errorf("serviced service logs")
 }
 
-// serviced service list-snapshot SERVICEID
+// serviced service list-snapshot SERVICEID [--show-tags]
 func (c *ServicedCli) cmdServiceListSnapshots(ctx *cli.Context) {
+	showTags := ctx.Bool("show-tags")
 	if len(ctx.Args()) < 1 {
 		fmt.Printf("Incorrect Usage.\n\n")
 		cli.ShowCommandHelp(ctx, "list-snapshots")
@@ -1354,13 +1313,31 @@ func (c *ServicedCli) cmdServiceListSnapshots(ctx *cli.Context) {
 	} else if snapshots == nil || len(snapshots) == 0 {
 		fmt.Fprintln(os.Stderr, "no snapshots found")
 	} else {
-		for _, s := range snapshots {
-			fmt.Println(s)
+		if showTags { //print a table of snapshot, description, tag list
+			t := NewTable("Snapshot,Description,Tags")
+			for _, s := range snapshots {
+				//build a comma-delimited list of the tags
+				tags := strings.Join(s.Tags, ",")
+
+				//make the row and add it to the table
+				row := make(map[string]interface{})
+				row["Snapshot"] = s.SnapshotID
+				row["Description"] = s.Description
+				row["Tags"] = tags
+				t.Padding = 6
+				t.AddRow(row)
+			}
+			//print the table
+			t.Print()
+		} else { //just print a list of snapshots
+			for _, s := range snapshots {
+				fmt.Println(s)
+			}
 		}
 	}
 }
 
-// serviced service snapshot SERVICEID
+// serviced service snapshot SERVICEID [--tags=<tag1>,<tag2>...]
 func (c *ServicedCli) cmdServiceSnapshot(ctx *cli.Context) {
 	nArgs := len(ctx.Args())
 	if nArgs < 1 {
@@ -1381,7 +1358,15 @@ func (c *ServicedCli) cmdServiceSnapshot(ctx *cli.Context) {
 		return
 	}
 
-	if snapshot, err := c.driver.AddSnapshot(svc.ID, description); err != nil {
+	//get the tags (if any)
+	tag := ctx.String("tag")
+
+	cfg := api.SnapshotConfig{
+		ServiceID: svc.ID,
+		Message:   description,
+		Tag:       tag,
+	}
+	if snapshot, err := c.driver.AddSnapshot(cfg); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		c.exit(1)
 	} else if snapshot == "" {
@@ -1389,5 +1374,80 @@ func (c *ServicedCli) cmdServiceSnapshot(ctx *cli.Context) {
 		c.exit(1)
 	} else {
 		fmt.Println(snapshot)
+	}
+}
+
+// serviced service endpoints SERVICEID
+func (c *ServicedCli) cmdServiceEndpoints(ctx *cli.Context) {
+	nArgs := len(ctx.Args())
+	if nArgs < 1 {
+		fmt.Printf("Incorrect Usage.\n\n")
+		cli.ShowCommandHelp(ctx, "endpoints")
+		return
+	}
+
+	svc, err := c.searchForService(ctx.Args().First())
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return
+	}
+
+	var reportExports, reportImports bool
+	if ctx.Bool("all") {
+		reportImports = true
+		reportExports = true
+	} else if ctx.Bool("imports") {
+		reportImports = true
+		reportExports = false
+	} else {
+		reportImports = false
+		reportExports = true
+	}
+
+	if endpoints, err := c.driver.GetEndpoints(svc.ID, reportImports, reportExports, ctx.Bool("verify")); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return
+	} else if len(endpoints) == 0 {
+		fmt.Fprintf(os.Stderr, "%s - no endpoints defined\n", svc.Name)
+		return
+	} else {
+		hostmap, err := c.driver.GetHostMap()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Unable to get host info, printing host IDs instead of names: %s", err)
+		}
+
+		t := NewTable("Name,ServiceID,Endpoint,Purpose,Host,HostIP,HostPort,ContainerID,ContainerIP,ContainerPort")
+		t.Padding = 4
+		for _, endpoint := range endpoints {
+			serviceName := svc.Name
+			if svc.Instances > 1 && endpoint.Endpoint.ContainerID != "" {
+				serviceName = fmt.Sprintf("%s/%d", serviceName, endpoint.Endpoint.InstanceID)
+			}
+
+			host := endpoint.Endpoint.HostID
+			hostinfo, ok := hostmap[endpoint.Endpoint.HostID]
+			if ok {
+				host = hostinfo.Name
+			}
+
+			var hostPort string
+			if endpoint.Endpoint.HostPort != 0 {
+				hostPort = strconv.Itoa(int(endpoint.Endpoint.HostPort))
+			}
+
+			t.AddRow(map[string]interface{}{
+				"Name":           serviceName,
+				"ServiceID":      endpoint.Endpoint.ServiceID,
+				"Endpoint":       endpoint.Endpoint.Application,
+				"Purpose":        endpoint.Endpoint.Purpose,
+				"Host":           host,
+				"HostIP":         endpoint.Endpoint.HostIP,
+				"HostPort":       hostPort,
+				"ContainerID":    fmt.Sprintf("%-12.12s", endpoint.Endpoint.ContainerID),
+				"ContainerIP":    endpoint.Endpoint.ContainerIP,
+				"ContainerPort":  endpoint.Endpoint.ContainerPort,
+			})
+		}
+		t.Print()
 	}
 }

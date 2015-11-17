@@ -20,13 +20,15 @@ import (
 	"github.com/control-center/serviced/commons"
 	coordclient "github.com/control-center/serviced/coordinator/client"
 	"github.com/control-center/serviced/dao"
-	"github.com/control-center/serviced/dfs"
+	"github.com/control-center/serviced/dfs/ttl"
 	"github.com/control-center/serviced/domain/addressassignment"
 	"github.com/control-center/serviced/domain/host"
 	"github.com/control-center/serviced/domain/service"
+	"github.com/control-center/serviced/domain/servicedefinition"
+	"github.com/control-center/serviced/facade"
+	"github.com/control-center/serviced/scheduler/strategy"
 	"github.com/control-center/serviced/zzk"
 	zkservice "github.com/control-center/serviced/zzk/service"
-	"github.com/control-center/serviced/zzk/snapshot"
 	"github.com/control-center/serviced/zzk/virtualips"
 	"github.com/zenoss/glog"
 )
@@ -35,6 +37,7 @@ type leader struct {
 	shutdown <-chan interface{}
 	conn     coordclient.Connection
 	cpClient dao.ControlPlane
+	facade   *facade.Facade
 	poolID   string
 }
 
@@ -42,34 +45,24 @@ type leader struct {
 //    services
 //    snapshots
 //    virtual IPs
-func Lead(shutdown <-chan interface{}, conn coordclient.Connection, cpClient dao.ControlPlane, poolID string, snapshotTTL int) {
+func Lead(shutdown <-chan interface{}, conn coordclient.Connection, cpClient dao.ControlPlane, facade *facade.Facade, poolID string, snapshotTTL int) {
 
 	glog.V(0).Info("Processing leader duties")
-	leader := leader{shutdown, conn, cpClient, poolID}
+	leader := leader{shutdown, conn, cpClient, facade, poolID}
 
 	// creates a listener for the host registry
 	hostRegistry := zkservice.NewHostRegistryListener()
-
-	// creates a listener for snapshots with a function call to take snapshots
-	// and return the label and error message
-	snapshotListener := snapshot.NewSnapshotListener(&leader)
 
 	// creates a listener for services
 	serviceListener := zkservice.NewServiceListener(&leader)
 
 	// kicks off the snapshot cleaning goroutine
 	if snapshotTTL > 0 {
-		go dfs.RunSnapshotTTL(cpClient, shutdown, time.Minute, time.Duration(snapshotTTL)*time.Hour)
+		go ttl.RunSnapshotTTL(cpClient, shutdown, time.Minute, time.Duration(snapshotTTL)*time.Hour)
 	}
 
 	// starts all of the listeners
-	zzk.Start(shutdown, conn, serviceListener, hostRegistry, snapshotListener)
-}
-
-func (l *leader) TakeSnapshot(serviceID string) (string, error) {
-	var label string
-	err := l.cpClient.Snapshot(dao.SnapshotRequest{serviceID, ""}, &label)
-	return label, err
+	zzk.Start(shutdown, conn, serviceListener, hostRegistry)
 }
 
 // SelectHost chooses a host from the pool for the specified service. If the service
@@ -120,5 +113,14 @@ func (l *leader) SelectHost(s *service.Service) (*host.Host, error) {
 		return nil, fmt.Errorf("host %s not available in pool %s", hostID, l.poolID)
 	}
 
-	return NewServiceHostPolicy(s, l.cpClient).SelectHost(hosts)
+	hp := s.HostPolicy
+	if hp == "" {
+		hp = servicedefinition.Balance
+	}
+	strat, err := strategy.Get(string(hp))
+	if err != nil {
+		return nil, err
+	}
+
+	return StrategySelectHost(s, hosts, strat, l.facade)
 }

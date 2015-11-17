@@ -17,14 +17,15 @@ import (
 	"github.com/control-center/serviced/commons/proc"
 	"github.com/control-center/serviced/commons/subprocess"
 	coordclient "github.com/control-center/serviced/coordinator/client"
-	"github.com/control-center/serviced/dao"
 	"github.com/control-center/serviced/domain"
+	"github.com/control-center/serviced/domain/applicationendpoint"
 	"github.com/control-center/serviced/domain/service"
 	"github.com/control-center/serviced/domain/servicedefinition"
 	"github.com/control-center/serviced/node"
 	"github.com/control-center/serviced/utils"
 	"github.com/control-center/serviced/zzk"
 	"github.com/control-center/serviced/zzk/registry"
+	"github.com/docker/docker/pkg/mount"
 	"github.com/zenoss/glog"
 
 	"bufio"
@@ -473,7 +474,64 @@ func (c *Controller) rpcHealthCheck() (chan struct{}, error) {
 			}
 		}
 	}()
+	return gone, nil
+}
 
+func isNFSMountStale(mountpoint string) bool {
+	// See http://stackoverflow.com/questions/17612004/linux-shell-script-how-to-detect-nfs-mount-point-or-the-server-is-dead
+	// for explanation of the following command.
+	if err := exec.Command("/bin/bash", "-c", fmt.Sprintf("read -t1 < <(stat -t '%s' 2>&-)", mountpoint)).Run(); err != nil {
+		if err.Error() == "wait: no child processes" {
+			glog.V(2).Infof("Distributed storage check hit probably spurious ECHILD. Ignoring.")
+			return false
+		}
+		status, iscode := utils.GetExitStatus(err)
+		if iscode {
+			if status == 142 {
+				// EREMDEV; read timed out, wait for NFS to come back.
+				glog.Infof("Distributed storage temporarily unavailable (EREMDEV). Waiting for it to return.")
+				return false
+			}
+			if status == 10 {
+				// ECHILD: No child processes, not sure what causes this, but appears to be spurious.
+				glog.V(2).Infof("Distributed storage check hit probably spurious ECHILD. Ignoring.")
+				return false
+			}
+		}
+		glog.Errorf("Mount point %s check had error (%d, %s); considering stale.", mountpoint, status, err)
+		return true
+	}
+	return false
+}
+
+// storageHealthCheck returns a channel that will close when the distributed
+// storage is no longer accessible (i.e., stale NFS mount)
+func (c *Controller) storageHealthCheck() (chan struct{}, error) {
+	gone := make(chan struct{})
+	mounts, err := mount.GetMounts()
+	if err != nil {
+		return nil, err
+	}
+	nfsMountPoints := []string{}
+	for _, minfo := range mounts {
+		if strings.HasPrefix(minfo.Fstype, "nfs") {
+			nfsMountPoints = append(nfsMountPoints, minfo.Mountpoint)
+		}
+	}
+	if len(nfsMountPoints) > 0 {
+		// Start polling
+		go func() {
+			for {
+				for _, mp := range nfsMountPoints {
+					if isNFSMountStale(mp) {
+						close(gone)
+						return
+					}
+				}
+				<-time.After(5 * time.Second)
+			}
+		}()
+	}
 	return gone, nil
 }
 
@@ -543,6 +601,12 @@ func (c *Controller) Run() (err error) {
 		return err
 	}
 
+	storageDead, err := c.storageHealthCheck()
+	if err != nil {
+		glog.Errorf("Could not set up storage check: %s", err)
+		return err
+	}
+
 	prereqsPassed := make(chan bool)
 	var startAfter <-chan time.Time
 	var exitAfter <-chan time.Time
@@ -561,32 +625,43 @@ func (c *Controller) Run() (err error) {
 	doRegisterEndpoints := true
 	exited := false
 
+	var reregister <-chan struct{}
+
 	var shutdownService = func(service *subprocess.Instance, sig os.Signal) {
 		c.options.Service.Autorestart = false
 		if sendSignal(service, sig) {
+			// nil out all other channels because we're shutting down
 			sigc = nil
 			prereqsPassed = nil
 			startAfter = nil
 			rpcDead = nil
+			storageDead = nil
+			reregister = nil
+
+			// exitAfter is the deadman switch for unresponsive processes and any processes that have already exited
 			exitAfter = time.After(time.Second * 30)
+
+			glog.Infof("Closing healthExit on signal %v for %q", sig, c.options.Service.ID)
 			close(healthExit)
+			glog.Infof("Closed healthExit on signal %v for %q", sig, c.options.Service.ID)
 		} else {
 			c.exitStatus = 1
 			exited = true
+			glog.Infof("Exited due to sendSignal(%v) failed for %q", sig, c.options.Service.ID)
 		}
 	}
-
-	var reregister <-chan struct{}
 
 	for !exited {
 		select {
 		case sig := <-sigc:
-			glog.Infof("Notifying subprocess of signal %v", sig)
+			glog.Infof("Notifying subprocess of signal %v for service %s", sig, c.options.Service.ID)
 			shutdownService(service, sig)
+			glog.Infof("Notification complete for signal %v for service %s", sig, c.options.Service.ID)
 
 		case <-exitAfter:
-			glog.Infof("Killing unresponsive subprocess")
+			glog.Infof("Killing unresponsive subprocess for service %s", c.options.Service.ID)
 			sendSignal(service, syscall.SIGKILL)
+			glog.Infof("Kill signal sent for service %s", c.options.Service.ID)
 			c.exitStatus = 1
 			exited = true
 
@@ -600,20 +675,20 @@ func (c *Controller) Run() (err error) {
 				if c.options.Logforwarder.Enabled {
 					time.Sleep(c.options.Logforwarder.SettleTime)
 				}
-				glog.Infof("Service Exited with status:%d due to %+v", exitStatus, exitError)
+				glog.Infof("Service %s Exited with status:%d due to %+v", c.options.Service.ID, exitStatus, exitError)
 				//set loop to end
 				exited = true
 				//exit with exit code, defer so that other cleanup can happen
 				c.exitStatus = exitStatus
 
 			} else {
-				glog.Infof("Restarting service process in 10 seconds.")
+				glog.Infof("Restarting service process for service %s in 10 seconds.", c.options.Service.ID)
 				service = nil
 				startAfter = time.After(time.Second * 10)
 			}
 
 		case <-startAfter:
-			glog.Infof("Starting service process.")
+			glog.Infof("Starting service process for service %s", c.options.Service.ID)
 			service, serviceExited = startService()
 			if doRegisterEndpoints {
 				reregister = registerExportedEndpoints(c, rpcDead)
@@ -623,8 +698,13 @@ func (c *Controller) Run() (err error) {
 		case <-reregister:
 			reregister = registerExportedEndpoints(c, rpcDead)
 		case <-rpcDead:
-			glog.Infof("RPC Server has gone away, cleaning up")
+			glog.Infof("RPC Server has gone away, cleaning up service %s", c.options.Service.ID)
 			shutdownService(service, syscall.SIGTERM)
+			glog.Infof("RPC Server shutdown for service %s complete", c.options.Service.ID)
+		case <-storageDead:
+			glog.Infof("Distributed storage for service %s has gone away; shutting down", c.options.Service.ID)
+			shutdownService(service, syscall.SIGTERM)
+			glog.Infof("Distributed storage shutdown for service %s complete", c.options.Service.ID)
 		}
 	}
 	// Signal to health check registry that this instance is giving up the ghost.
@@ -774,10 +854,10 @@ func (c *Controller) handleHealthCheck(name string, script string, interval, tim
 			select {
 			case err := <-exited:
 				if err == nil {
-					glog.V(4).Infof("Health check %s succeeded.", name)
+					glog.V(4).Infof("Health check %q succeeded.", name)
 					client.LogHealthCheck(domain.HealthCheckResult{c.options.Service.ID, c.options.Service.InstanceID, name, time.Now().String(), "passed"}, &unused)
 				} else {
-					glog.Warningf("Health check %s failed.", name)
+					glog.Warningf("Health check %q failed.", name, err)
 					client.LogHealthCheck(domain.HealthCheckResult{c.options.Service.ID, c.options.Service.InstanceID, name, time.Now().String(), "failed"}, &unused)
 				}
 			case <-exitChannel:
@@ -797,7 +877,6 @@ func (c *Controller) handleHealthCheck(name string, script string, interval, tim
 func (c *Controller) handleControlCenterImports(rpcdead chan struct{}) error {
 	// this function is currently needed to handle special control center imports
 	// from GetServiceEndpoints() that does not exist in endpoints from getServiceState
-
 	// get service endpoints
 	client, err := node.NewLBClient(c.options.ServicedEndpoint)
 	if err != nil {
@@ -805,17 +884,16 @@ func (c *Controller) handleControlCenterImports(rpcdead chan struct{}) error {
 		return err
 	}
 	defer client.Close()
-
 	// TODO: instead of getting all endpoints, via GetServiceEndpoints(), create a new call
 	//       that returns only special "controlplane" imported endpoints
 	//	Note: GetServiceEndpoints has been modified to return only special controlplane endpoints.
 	//		We should rename it and clean up the filtering code below.
 
-	epchan := make(chan map[string][]dao.ApplicationEndpoint)
+	epchan := make(chan map[string][]applicationendpoint.ApplicationEndpoint)
 	timeout := make(chan struct{})
 
-	go func(c *node.LBClient, svcid string, epc chan map[string][]dao.ApplicationEndpoint, timeout chan struct{}) {
-		var endpoints map[string][]dao.ApplicationEndpoint
+	go func(c *node.LBClient, svcid string, epc chan map[string][]applicationendpoint.ApplicationEndpoint, timeout chan struct{}) {
+		var endpoints map[string][]applicationendpoint.ApplicationEndpoint
 	RetryGetServiceEndpoints:
 		for {
 			err = c.GetServiceEndpoints(svcid, &endpoints)
@@ -847,7 +925,7 @@ func (c *Controller) handleControlCenterImports(rpcdead chan struct{}) error {
 		}
 	}(client, c.options.Service.ID, epchan, timeout)
 
-	var endpoints map[string][]dao.ApplicationEndpoint
+	var endpoints map[string][]applicationendpoint.ApplicationEndpoint
 	select {
 	case <-time.After(1 * time.Minute):
 		close(epchan)
@@ -863,7 +941,7 @@ func (c *Controller) handleControlCenterImports(rpcdead chan struct{}) error {
 	}
 
 	// convert keys set by GetServiceEndpoints to tenantID_endpointID
-	tmp := make(map[string][]dao.ApplicationEndpoint)
+	tmp := make(map[string][]applicationendpoint.ApplicationEndpoint)
 	for key, endpointList := range endpoints {
 		if len(endpointList) <= 0 {
 			glog.Warningf("ignoring key: %s with empty endpointList", key)

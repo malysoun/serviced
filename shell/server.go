@@ -20,13 +20,16 @@ import (
 	"os"
 	"os/exec"
 	"path"
+	"path/filepath"
 	"runtime"
 	"strings"
 
 	"github.com/googollee/go-socket.io"
 	"github.com/zenoss/glog"
 
+	"github.com/control-center/serviced/commons"
 	"github.com/control-center/serviced/commons/docker"
+	"github.com/control-center/serviced/domain/registry"
 	"github.com/control-center/serviced/domain/service"
 	"github.com/control-center/serviced/domain/user"
 	"github.com/control-center/serviced/node"
@@ -70,10 +73,10 @@ func NewProcessForwarderServer(addr string) *ProcessServer {
 	return server
 }
 
-func NewProcessExecutorServer(port, dockerRegistry string) *ProcessServer {
+func NewProcessExecutorServer(port, dockerRegistry, controllerBinary string) *ProcessServer {
 	server := &ProcessServer{
 		sio:   socketio.NewSocketIOServer(&socketio.Config{}),
-		actor: &Executor{port: port, dockerRegistry: dockerRegistry},
+		actor: &Executor{port: port, dockerRegistry: dockerRegistry, controllerBinary: controllerBinary},
 	}
 	server.sio.On("connect", server.onConnect)
 	server.sio.On("disconnect", onExecutorDisconnect)
@@ -286,7 +289,7 @@ func (e *Executor) Exec(cfg *ProcessConfig) (p *ProcessInstance) {
 		Result: make(chan Result, 2),
 	}
 
-	cmd, err := StartDocker(cfg, e.port)
+	cmd, err := StartDocker(cfg, e.dockerRegistry, e.port, e.controllerBinary)
 	if err != nil {
 		p.Result <- Result{0, err.Error(), ABNORMAL}
 		return
@@ -329,7 +332,7 @@ func parseMountArg(arg string) (hostPath, containerPath string, err error) {
 
 }
 
-func StartDocker(cfg *ProcessConfig, port string) (*exec.Cmd, error) {
+func StartDocker(cfg *ProcessConfig, dockerRegistry, port, controller string) (*exec.Cmd, error) {
 	var svc service.Service
 
 	// Create a control center client to look up the service
@@ -346,17 +349,31 @@ func StartDocker(cfg *ProcessConfig, port string) (*exec.Cmd, error) {
 	}
 
 	// make sure docker image is present
-	if _, err = docker.FindImage(svc.ImageID, false); err != nil {
-		glog.Errorf("unable to inspect image %s: %s", svc.ImageID, err)
+	imageID, err := commons.ParseImageID(svc.ImageID)
+	if err != nil {
+		glog.Errorf("Could not parse image %s: %s", svc.ImageID, err)
 		return nil, err
+	}
+	image := (&registry.Image{
+		Library: imageID.User,
+		Repo:    imageID.Repo,
+		Tag:     imageID.Tag,
+	}).String()
+	image = dockerRegistry + "/" + image
+	glog.Infof("Getting image %s", image)
+	if _, err = docker.FindImage(image, false); err != nil {
+		if docker.IsImageNotFound(err) {
+			if err := docker.PullImage(image); err != nil {
+				glog.Errorf("unable to pull image %s: %s", image, err)
+				return nil, err
+			}
+		} else {
+			glog.Errorf("unable to inspect image %s: %s", image, err)
+			return nil, err
+		}
 	}
 
-	// bind mount on /serviced
-	dir, bin, err := node.ExecPath()
-	if err != nil {
-		glog.Errorf("serviced not found: %s", err)
-		return nil, err
-	}
+	dir, binary := filepath.Split(controller)
 	servicedVolume := fmt.Sprintf("%s:/serviced", dir)
 
 	// bind mount the pwd
@@ -370,14 +387,12 @@ func StartDocker(cfg *ProcessConfig, port string) (*exec.Cmd, error) {
 	}
 
 	// get the serviced command
-	svcdcmd := fmt.Sprintf("/serviced/%s", bin)
+	svcdcmd := fmt.Sprintf("/serviced/%s", binary)
 
 	// get the proxy command
 	proxycmd := []string{
 		svcdcmd,
 		fmt.Sprintf("--logtostderr=%t", cfg.LogToStderr),
-		"service",
-		"proxy",
 		"--autorestart=false",
 		"--disable-metric-forwarding",
 		fmt.Sprintf("--logstash=%t", cfg.LogStash.Enable),
@@ -426,14 +441,17 @@ func StartDocker(cfg *ProcessConfig, port string) (*exec.Cmd, error) {
 	argv = append(argv, "-e", fmt.Sprintf("CONTROLPLANE_SYSTEM_PASSWORD=%s ", systemUser.Password))
 	argv = append(argv, "-e", fmt.Sprintf("SERVICED_NOREGISTRY=%s", os.Getenv("SERVICED_NOREGISTRY")))
 	argv = append(argv, "-e", fmt.Sprintf("SERVICED_IS_SERVICE_SHELL=true"))
-	argv = append(argv, "-e", fmt.Sprintf("SERVICED_SERVICE_IMAGE=%s", svc.ImageID))
+	argv = append(argv, "-e", fmt.Sprintf("SERVICED_SERVICE_IMAGE=%s", image))
 
-	argv = append(argv, svc.ImageID)
+	argv = append(argv, image)
 	argv = append(argv, proxycmd...)
 
 	// wait for the DFS to be ready in order to start container on the latest image
 	glog.Infof("Acquiring image from the dfs...")
-	cp.ReadyDFS(false, nil)
+	if err := cp.ReadyDFS(svc.ID, new(int)); err != nil {
+		glog.Errorf("Could not ready dfs: %s", err)
+		return nil, err
+	}
 	glog.Infof("Acquired!  Starting shell")
 
 	glog.V(1).Infof("command: docker %+v", argv)

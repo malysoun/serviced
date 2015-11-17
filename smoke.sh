@@ -7,7 +7,7 @@
 #######################################################
 
 DIR="$(cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd)"
-SERVICED=${DIR}/serviced
+SERVICED=$(which serviced)
 IP=$(/sbin/ifconfig docker0 | grep 'inet addr:' | cut -d: -f2 | awk {'print $1'})
 HOSTNAME=$(hostname)
 
@@ -30,7 +30,7 @@ install_prereqs() {
     if ! docker inspect "${wget_image}" >/dev/null; then
         docker pull "${wget_image}"
        if ! docker inspect "${wget_image}" >/dev/null; then
-            fail "ERROR: docker image "${wget_image}" is not available - wget tests will fail"
+            fail "ERROR: docker inspect "${wget_image}" is not available - wget tests will fail"
        fi
     fi
 }
@@ -52,7 +52,7 @@ trap cleanup EXIT
 
 start_serviced() {
     echo "Starting serviced..."
-    sudo GOPATH=${GOPATH} PATH=${PATH} SERVICED_NOREGISTRY="true" ${SERVICED} -master -agent server &
+    sudo GOPATH=${GOPATH} PATH=${PATH} ${SERVICED} -master -agent server &
     echo "Waiting 120 seconds for serviced to become the leader..."
     retry 180 wget --no-check-certificate http://${HOSTNAME}:443 -O- &>/dev/null
     return $?
@@ -178,15 +178,66 @@ test_service_shell() {
 
 test_service_run() {
     set -x
+
+    # Make sure we start with no snapshots, othewise the checks below may pass for the wrong reason
+    SNAPSHOT_COUNT=`${SERVICED} service list-snapshots s2 | wc -l`
+    [ "${SNAPSHOT_COUNT}" == "0" ] || return 1
+
     local rc=""
     ${SERVICED} service run s2 exit0; rc="$?"
     [ "$rc" -eq 0 ] || return "$rc"
+
+    # Verify that the commit moved the 'latest' tag to the same layer ID as the snapshot
+    TENANT_ID=`${SERVICED} service status testsvc --show-fields ServiceID | grep -v ServiceID `
+    LATEST_IMAGE_ID=`docker images | grep ${TENANT_ID} | grep latest | awk '{print $3}' `
+    SNAPSHOT_LABEL=`${SERVICED} service list-snapshots s2 | cut -d_ -f2 `
+    SNAPSHOT_IMAGE_ID=`docker images | grep ${SNAPSHOT_LABEL} | awk '{print $3}' `
+    [ "${SNAPSHOT_IMAGE_ID}" == "${LATEST_IMAGE_ID}" ] || return 1
+
     ${SERVICED} service run s2 exit1; rc="$?"
     [ "$rc" -eq 42 ] || return "255"
+
+    # Verify that the no additional snapshots were created
+    SNAPSHOT_COUNT=`${SERVICED} service list-snapshots s2 | wc -l`
+    [ "${SNAPSHOT_COUNT}" == "1" ] || return 1
+
     # make sure kills to 'runs' are working OK
     for signal in INT TERM; do
         local sleepyPid=""
         ${SERVICED} service run s2 sleepy60 &
+        sleepyPid="$!"
+        sleep 10
+        kill -"$signal" "$sleepyPid"
+        sleep 10
+        kill -0 "$sleepyPid" &>/dev/null && return 1 # make sure job is gone
+    done
+    set +x
+}
+
+test_service_run_command() {
+    set -x
+    local rc=""
+    ${SERVICED} service run s1 commands-exit0; rc="$?"
+    [ "$rc" -eq 0 ] || return "$rc"
+    ${SERVICED} service run s1 commands-exit1; rc="$?"
+    [ "$rc" -eq 42 ] || return "255"
+    ${SERVICED} service run s1 commands-exit0-nc; rc="$?"
+    [ "$rc" -eq 0 ] || return "$rc"
+    ${SERVICED} service run s1 commands-exit1-nc; rc="$?"
+    [ "$rc" -eq 42 ] || return "255"
+    # make sure kills to 'commands' are working OK
+    for signal in INT TERM; do
+        local sleepyPid=""
+        ${SERVICED} service run s1 commands-sleepy60 &
+        sleepyPid="$!"
+        sleep 10
+        kill -"$signal" "$sleepyPid"
+        sleep 10
+        kill -0 "$sleepyPid" &>/dev/null && return 1 # make sure job is gone
+    done
+    for signal in INT TERM; do
+        local sleepyPid=""
+        ${SERVICED} service run s1 commands-sleepy60-nc &
         sleepyPid="$!"
         sleep 10
         kill -"$signal" "$sleepyPid"

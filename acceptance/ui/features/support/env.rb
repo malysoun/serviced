@@ -90,8 +90,16 @@ end
 data = combineAllDataFiles(dataset_dir)
 PARSED_DATA = parseJson(data)
 
+template_dir = File.join(ENV["DATASET_DIR"], "/testsvc")
+if !Dir.exists?(template_dir) || Dir.entries(template_dir).size <= 2
+    printf "ERROR: #{template_dir} is not defined\n"
+    exit 1
+end
+TEMPLATE_DIR = template_dir
+
 printf "Using dataset directory=%s\n", ENV["DATASET_DIR"]
 printf "Using dataset=%s\n", ENV["DATASET"]
+printf "Using template directory=%s\n", template_dir
 
 timeout_override = ENV["CAPYBARA_TIMEOUT"]
 if timeout_override && timeout_override.length > 0
@@ -147,3 +155,7 @@ end
 Capybara::Screenshot.register_driver(:selenium_chrome) do |driver, path|
     driver.browser.save_screenshot(path)
 end
+
+# Turns off default screenshots (taken after cleanup hooks)
+# so only one screenshot per failure is taken
+Capybara::Screenshot.autosave_on_failure = false

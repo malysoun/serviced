@@ -11,6 +11,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// +build unit integration
+
 package testutils
 
 import (
@@ -79,7 +81,7 @@ func CreateValidServiceDefinition() *ServiceDefinition {
 						PortNumber:  8080,
 						Application: "websvc",
 						Purpose:     "export",
-						VHosts:      []string{"testhost"},
+						VHostList:   []VHost{VHost{Name: "testhost"}},
 					},
 				},
 				LogConfigs: []LogConfig{

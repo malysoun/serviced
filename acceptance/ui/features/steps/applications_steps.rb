@@ -1,4 +1,4 @@
-Given /^that multiple applications and application templates have been added$/ do
+Given (/^(?:|that )multiple applications and application templates have been added$/) do
     visitApplicationsPage()
     within(@applications_page.services_table) do
         if has_text?("Showing 1 Result")
@@ -12,15 +12,37 @@ Given /^that multiple applications and application templates have been added$/ d
     end
 end
 
+Given (/^(?:|that )the "(.*?)" application is not added$/) do |app|
+    visitApplicationsPage()
+    exists = true
+    while exists == true do
+        exists = checkServiceRows(app)
+        removeEntry(app, "service") if exists
+    end
+end
+
+Given (/^(?:|that )the "(.*?)" application with the "(.*?)" Deployment ID is added$/) do |app, id|
+    visitApplicationsPage()
+    exists = checkServiceRows(app) && isInColumn(id, "Deployment ID")
+    addService(app, "default", id) if !exists
+end
+
+Given (/^(?:|that )the test template is added$/) do
+    visitApplicationsPage()
+    exists = checkTemplateRows("testsvc")
+    addTemplate(TEMPLATE_DIR) if !exists
+    refreshPage()
+end
+
 When(/^I am on the applications page$/) do
     visitApplicationsPage()
 end
 
-When(/^I click the Add-Application button$/) do
+When(/^I click the add Application button$/) do
     @applications_page.addApp_button.click()
 end
 
-When(/^I click the Add-Application Template button$/) do
+When(/^I click the add Application Template button$/) do
     @applications_page.addAppTemplate_button.click()
 end
 
@@ -30,7 +52,7 @@ When(/^I click the Services Map button$/) do
 end
 
 When(/^I fill in the Deployment ID field with "(.*?)"$/) do |deploymentID|
-    @applications_page.deploymentID_field.set deploymentID
+    fillInDeploymentID(deploymentID)
 end
 
 When(/^I remove "(.*?)" from the Applications list$/) do |name|
@@ -45,51 +67,116 @@ When(/^I remove "(.*?)" from the Application Templates list$/) do |name|
     end
 end
 
+Then (/^I should see that the application has deployed$/) do
+    expect(page).to have_content("App deployed successfully", wait: 120)
+    refreshPage() # workaround until apps consistently display on page without refreshing
+end
 
-Then /^the "Status" column should be sorted with active applications on (top|the bottom)$/ do |order|
+Then (/^I should see that the application has not been deployed$/) do
+    expect(page).to have_content("App deploy failed")
+end
+
+Then (/^the "Status" column should be sorted with active applications on (top|the bottom)$/) do |order|
     list = @applications_page.status_icons
     for i in 0..(list.size - 2)
         if order == "top"
             # assuming - (ng-isolate-scope down) before + (ng-isolate-scope good)
-            list[i][:class] <= list[i + 1][:class]
+            expect(list[i][:class]).to be <= list[i + 1][:class]
         else
-            list[i][:class] >= list[i + 1][:class]    # assuming + before - before !
+            expect(list[i][:class]).to be >= list[i + 1][:class]    # assuming + before - before !
         end
     end
 end
 
-Then (/^I should see "([^"]*)" in the Services Map$/) do |node|
+Then (/^I should see "(.*?)" in the Services Map$/) do |node|
     within(@servicesMap_page.map) do
-        assert_text(node)
+        assert_text(getTableValue(node))
     end
+end
+
+Then (/^I should see an entry for "(.*?)" in the Applications table$/) do |entry|
+    expect(checkServiceRows(entry)).to be true
+end
+
+Then (/^I should see an entry for "(.*?)" in the Application Templates table$/) do |entry|
+    expect(checkTemplateRows(entry)).to be true
+end
+
+Then (/^"(.*?)" should be active$/) do |entry|
+    expect(checkActive(entry)).to be true
+end
+
+
+def checkActive(entry)
+    within(page.find("table[data-config='servicesTable']")) do
+        within(page.find("tr", :text => entry)) do
+            return page.has_css?("[class*='good']")
+        end
+    end
+end
+
+def checkServiceRows(row)
+    found = false
+    within(@applications_page.services_table) do
+        found = page.has_text?(getTableValue(row))
+    end
+    return found
+end
+
+def checkTemplateRows(row)
+    found = false
+    within(@applications_page.templates_table) do
+        found = page.has_text?(getTableValue(row))
+    end
+    return found
 end
 
 def visitApplicationsPage()
     @applications_page = Applications.new
     @applications_page.navbar.applications.click()
     expect(@applications_page).to be_displayed
+    closeDeployWizard()
 end
 
-def removeAllTemplates()
-    defaultMatch = Capybara.match
-    Capybara.match = :first
-    while @applications_page.template_entries.size != 0 do
-        within(@applications_page.templates_table) do
-            click_link_or_button("Delete")
-        end
-        click_link_or_button("Remove Template")
-    end
-    Capybara.match = defaultMatch
+def fillInDeploymentID(id)
+    @applications_page.deploymentID_field.set getTableValue(id)
 end
 
-def removeAllAddedServices()
-    defaultMatch = Capybara.match
-    Capybara.match = :first
-    while @applications_page.service_entries.size != 1 do
-        within(@applications_page.services_table) do
-            click_link_or_button("Delete")
-        end
-        click_link_or_button("Remove Application")
-    end
-    Capybara.match = defaultMatch
+def addService(name, pool, id)
+    @applications_page.addApp_button.click()
+    selectOption(name)
+    click_link_or_button("Next")
+    selectOption(pool)
+    click_link_or_button("Next")
+    fillInDeploymentID(id)
+    click_link_or_button("Deploy")
+    expect(page).to have_content("App deployed successfully", wait: 120)
 end
+
+def addTemplate(dir)
+    id = `/capybara/serviced --endpoint #{HOST_IP}:4979 template compile #{dir} | /capybara/serviced --endpoint #{HOST_IP}:4979 template add`
+    `sleep 1`
+    return `[ -z "$(/capybara/serviced template list #{id})" ] && return 1`
+end
+
+def closeDeployWizard()
+    # if the deploy wizard is on the page
+    # and visible, it should be closed. if
+    # not, we can just ignore the exception
+    # that the cabybara finder throws
+    begin
+        el = find("#addApp")
+        # found it!
+        if el.visible?
+            el.find(".modal-header .close").click()
+            # wait till it is no longer visible
+            find("#addApp", :count => 0)
+        end
+        true
+    rescue
+        # couldn't find the deploy wizard,
+        # but that's ok. we all make mistakes
+        true
+    end
+end
+

@@ -11,6 +11,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// +build integration
+
 package facade
 
 import (
@@ -23,11 +25,15 @@ import (
 )
 
 func (ft *FacadeTest) Test_NewResourcePool(t *C) {
+	fmt.Println(" ##### Test_NewResourcePool: starting")
 	poolID := "Test_NewResourcePool"
+	result, err := ft.Facade.GetResourcePool(ft.CTX, poolID)
+	t.Assert(err, IsNil)
+	t.Assert(result, IsNil)
 	defer ft.Facade.RemoveResourcePool(ft.CTX, poolID)
 
 	rp := pool.ResourcePool{}
-	err := ft.Facade.AddResourcePool(ft.CTX, &rp)
+	err = ft.Facade.AddResourcePool(ft.CTX, &rp)
 	if err == nil {
 		t.Errorf("Expected failure to create resource pool %-v", rp)
 	}
@@ -44,10 +50,15 @@ func (ft *FacadeTest) Test_NewResourcePool(t *C) {
 		t.Errorf("Expected error creating redundant resource pool %-v", rp)
 		t.Fail()
 	}
+	fmt.Println(" ##### Test_NewResourcePool: PASSED")
 }
 
 func (ft *FacadeTest) Test_UpdateResourcePool(t *C) {
+	fmt.Println(" ##### Test_UpdateResourcePool: starting")
 	poolID := "Test_UpdateResourcePool"
+	result, err := ft.Facade.GetResourcePool(ft.CTX, poolID)
+	t.Assert(err, IsNil)
+	t.Assert(result, IsNil)
 	defer ft.Facade.RemoveResourcePool(ft.CTX, poolID)
 
 	myPool := pool.New(poolID)
@@ -55,23 +66,29 @@ func (ft *FacadeTest) Test_UpdateResourcePool(t *C) {
 
 	myPool.CoreLimit = 1
 	myPool.MemoryLimit = 1
-	err := ft.Facade.UpdateResourcePool(ft.CTX, myPool)
+	err = ft.Facade.UpdateResourcePool(ft.CTX, myPool)
 	if err != nil {
 		t.Errorf("Failure updating resource pool %-v with error: %s", myPool, err)
 		t.Fail()
 	}
 
-	result, err := ft.Facade.GetResourcePool(ft.CTX, poolID)
+	result, err = ft.Facade.GetResourcePool(ft.CTX, poolID)
 	result.CreatedAt = myPool.CreatedAt
 	result.UpdatedAt = myPool.UpdatedAt
+
 	if !myPool.Equals(result) {
 		t.Errorf("%+v != %+v", myPool, result)
 		t.Fail()
 	}
+	fmt.Println(" ##### Test_UpdateResourcePool: PASSED")
 }
 
 func (ft *FacadeTest) Test_GetResourcePool(t *C) {
-	poolID := "Test_UpdateResourcePool"
+	fmt.Println(" ##### Test_GetResourcePool: starting")
+	poolID := "Test_GetResourcePool"
+	result, err := ft.Facade.GetResourcePool(ft.CTX, poolID)
+	t.Assert(err, IsNil)
+	t.Assert(result, IsNil)
 	defer ft.Facade.RemoveResourcePool(ft.CTX, poolID)
 
 	ft.Facade.RemoveResourcePool(ft.CTX, poolID)
@@ -82,7 +99,7 @@ func (ft *FacadeTest) Test_GetResourcePool(t *C) {
 		t.Fatalf("Failed to add resource pool: %v", err)
 	}
 
-	result, err := ft.Facade.GetResourcePool(ft.CTX, poolID)
+	result, err = ft.Facade.GetResourcePool(ft.CTX, poolID)
 	result.CreatedAt = rp.CreatedAt
 	result.UpdatedAt = rp.UpdatedAt
 	if err == nil {
@@ -92,14 +109,18 @@ func (ft *FacadeTest) Test_GetResourcePool(t *C) {
 	} else {
 		t.Errorf("Unexpected Error Retrieving ResourcePool: %v", err)
 	}
+	fmt.Println(" ##### Test_GetResourcePool: PASSED")
 }
 
 func (ft *FacadeTest) Test_RemoveResourcePool(t *C) {
-
+	fmt.Println(" ##### Test_RemoveResourcePool: starting")
 	poolID := "Test_RemoveResourcePool"
+
 	result, err := ft.Facade.GetResourcePool(ft.CTX, poolID)
 	t.Assert(err, IsNil)
 	t.Assert(result, IsNil)
+	defer ft.Facade.RemoveResourcePool(ft.CTX, poolID)
+
 	err = ft.Facade.RemoveResourcePool(ft.CTX, poolID)
 	t.Assert(err, IsNil)
 
@@ -116,6 +137,80 @@ func (ft *FacadeTest) Test_RemoveResourcePool(t *C) {
 	rp, err = ft.Facade.GetResourcePool(ft.CTX, poolID)
 	t.Assert(err, IsNil)
 	t.Assert(rp, IsNil)
+	fmt.Println(" ##### Test_RemoveResourcePool: PASSED")
+}
+
+func (ft *FacadeTest) TestRestoreResourcePools(c *C) {
+	pools1 := []pool.ResourcePool{
+		{
+			ID:    "testpool-1",
+			Realm: "default",
+			VirtualIPs: []pool.VirtualIP{
+				{
+					PoolID:        "testpool-1",
+					IP:            "122.34.56.7",
+					Netmask:       "255.255.255.0",
+					BindInterface: "eth0",
+				},
+			},
+			CreatedAt: time.Time{},
+			UpdatedAt: time.Time{},
+		},
+	}
+	defer ft.Facade.RemoveResourcePool(ft.CTX, "testpool-1")
+	err := ft.Facade.RestoreResourcePools(ft.CTX, pools1)
+	c.Assert(err, IsNil)
+	actual, err := ft.Facade.GetResourcePools(ft.CTX)
+	c.Assert(err, IsNil)
+	for i := range actual {
+		actual[i].DatabaseVersion = 0
+		actual[i].CreatedAt = time.Time{}
+		actual[i].UpdatedAt = time.Time{}
+	}
+	c.Assert(actual, DeepEquals, pools1)
+
+	pools2 := []pool.ResourcePool{
+		{
+			ID:    "testpool-1",
+			Realm: "default",
+			VirtualIPs: []pool.VirtualIP{
+				{
+					PoolID:        "testpool-1",
+					IP:            "122.34.56.8",
+					Netmask:       "255.255.255.1",
+					BindInterface: "eth1",
+				},
+			},
+			CoreLimit:   1,
+			MemoryLimit: 1,
+			CreatedAt:   time.Time{},
+			UpdatedAt:   time.Time{},
+		}, {
+			ID:    "testpool-2",
+			Realm: "default",
+			VirtualIPs: []pool.VirtualIP{
+				{
+					PoolID:        "testpool-2",
+					IP:            "122.34.56.7",
+					Netmask:       "255.255.255.0",
+					BindInterface: "eth0",
+				},
+			},
+			CreatedAt: time.Time{},
+			UpdatedAt: time.Time{},
+		},
+	}
+	defer ft.Facade.RemoveResourcePool(ft.CTX, "testpool-2")
+	err = ft.Facade.RestoreResourcePools(ft.CTX, pools2)
+	c.Assert(err, IsNil)
+	actual, err = ft.Facade.GetResourcePools(ft.CTX)
+	c.Assert(err, IsNil)
+	for i := range actual {
+		actual[i].DatabaseVersion = 0
+		actual[i].CreatedAt = time.Time{}
+		actual[i].UpdatedAt = time.Time{}
+	}
+	c.Assert(actual, DeepEquals, pools2)
 }
 
 func (ft *FacadeTest) Test_GetResourcePools(t *C) {

@@ -17,6 +17,7 @@ import (
 	"io"
 
 	"github.com/control-center/serviced/dao"
+	"github.com/control-center/serviced/domain/applicationendpoint"
 	"github.com/control-center/serviced/domain/host"
 	"github.com/control-center/serviced/domain/pool"
 	"github.com/control-center/serviced/domain/service"
@@ -25,6 +26,7 @@ import (
 	"github.com/control-center/serviced/facade"
 	"github.com/control-center/serviced/metrics"
 	"github.com/control-center/serviced/script"
+	"github.com/control-center/serviced/volume"
 )
 
 // API is the intermediary between the command-line interface and the dao layer
@@ -32,12 +34,12 @@ type API interface {
 
 	// Server
 	StartServer() error
-	StartProxy(ControllerOptions) error
 	ServicedHealthCheck(IServiceNames []string) ([]dao.IServiceHealthResult, error)
 
 	// Hosts
 	GetHosts() ([]host.Host, error)
 	GetHost(string) (*host.Host, error)
+	GetHostMap() (map[string]host.Host, error)
 	AddHost(HostConfig) (*host.Host, error)
 	RemoveHost(string) error
 	GetHostMemory(string) (*metrics.MemoryUsageStats, error)
@@ -67,6 +69,7 @@ type API interface {
 	RestartService(SchedulerConfig) (int, error)
 	StopService(SchedulerConfig) (int, error)
 	AssignIP(IPConfig) error
+	GetEndpoints(serviceID string, reportImports, reportExports, validate bool) ([]applicationendpoint.EndpointReport, error)
 
 	// RunningServices (ServiceStates)
 	GetRunningServices() ([]dao.RunningService, error)
@@ -81,10 +84,12 @@ type API interface {
 	// Snapshots
 	GetSnapshots() ([]dao.SnapshotInfo, error)
 	GetSnapshotsByServiceID(string) ([]dao.SnapshotInfo, error)
-	AddSnapshot(string, string) (string, error)
+	GetSnapshotByServiceIDAndTag(string, string) (string, error)
+	AddSnapshot(SnapshotConfig) (string, error)
 	RemoveSnapshot(string) error
-	Commit(string) (string, error)
 	Rollback(string, bool) error
+	TagSnapshot(string, string) ([]string, error)
+	RemoveSnapshotTag(string, string) ([]string, error)
 
 	// Templates
 	GetServiceTemplates() ([]template.ServiceTemplate, error)
@@ -100,7 +105,6 @@ type API interface {
 
 	// Docker
 	ResetRegistry() error
-	Squash(imageName, downToLayer, newName, tempDir string) (string, error)
 	RegistrySync() error
 
 	// Logs
@@ -109,6 +113,10 @@ type API interface {
 	// Metric
 	PostMetric(metricName string, metricValue string) (string, error)
 
+	// Scripts
 	ScriptRun(fileName string, config *script.Config, stopChan chan struct{}) error
 	ScriptParse(fileName string, config *script.Config) error
+
+	// Volumes
+	GetVolumeStatus() (*volume.Statuses, error)
 }

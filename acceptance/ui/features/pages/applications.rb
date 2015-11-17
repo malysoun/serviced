@@ -2,7 +2,7 @@ require_relative 'navbar'
 require 'site_prism'
 
 class Applications < SitePrism::Page
-    set_url applicationURL("#/apps")
+    set_url applicationURL("#/apps?disable-animation=true")
     set_url_matcher /apps/
 
     section :navbar, NavBarSection, ".navbar-collapse"
@@ -14,6 +14,4 @@ class Applications < SitePrism::Page
     element :services_table, "table[data-config='servicesTable']"
     element :templates_table, "table[data-config='templatesTable']"
     elements :status_icons, "[data-status$='service.status']"
-    elements :service_entries, "[ng-repeat='service in $data']"
-    elements :template_entries, "[ng-repeat='template in $data']"
 end

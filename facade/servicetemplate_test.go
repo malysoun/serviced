@@ -11,6 +11,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// +build integration
+
 package facade
 
 import (
@@ -25,15 +27,14 @@ func (ft *FacadeTest) TestDaoValidServiceForStart(t *C) {
 	testService := service.Service{
 		ID: "TestDaoValidServiceForStart_ServiceID",
 		Endpoints: []service.ServiceEndpoint{
-			service.ServiceEndpoint{
-				EndpointDefinition: servicedefinition.EndpointDefinition{
+			service.BuildServiceEndpoint(
+				servicedefinition.EndpointDefinition{
 					Name:        "TestDaoValidServiceForStart_EndpointName",
 					Protocol:    "tcp",
 					PortNumber:  8081,
 					Application: "websvc",
 					Purpose:     "import",
-				},
-			},
+				}),
 		},
 	}
 	err := ft.Facade.validateServicesForStarting(datastore.Get(), &testService)
@@ -46,8 +47,8 @@ func (ft *FacadeTest) TestDaoInvalidServiceForStart(t *C) {
 	testService := service.Service{
 		ID: "TestDaoInvalidServiceForStart_ServiceID",
 		Endpoints: []service.ServiceEndpoint{
-			service.ServiceEndpoint{
-				EndpointDefinition: servicedefinition.EndpointDefinition{
+			service.BuildServiceEndpoint(
+				servicedefinition.EndpointDefinition{
 					Name:        "TestDaoInvalidServiceForStart_EndpointName",
 					Protocol:    "tcp",
 					PortNumber:  8081,
@@ -57,25 +58,11 @@ func (ft *FacadeTest) TestDaoInvalidServiceForStart(t *C) {
 						Port:     8081,
 						Protocol: commons.TCP,
 					},
-				},
-			},
+				}),
 		},
 	}
 	err := ft.Facade.validateServicesForStarting(datastore.Get(), &testService)
 	if err == nil {
 		t.Error("Services should have failed validation for starting...")
-	}
-}
-
-func (ft *FacadeTest) TestRenameImageID(t *C) {
-	imageId, err := renameImageID("localhost:5000", "quay.io/zenossinc/daily-zenoss5-core:5.0.0_123", "X")
-	if err != nil {
-		t.Errorf("unexpected failure renamingImageID: %s", err)
-		t.FailNow()
-	}
-	expected := "localhost:5000/X/daily-zenoss5-core"
-	if imageId != expected {
-		t.Errorf("expected image '%s' got '%s'", expected, imageId)
-		t.FailNow()
 	}
 }

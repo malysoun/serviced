@@ -11,6 +11,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// +build unit
+
 package cmd
 
 import (
@@ -19,6 +21,7 @@ import (
 	"github.com/control-center/serviced/cli/api"
 	"github.com/control-center/serviced/dao"
 	"github.com/control-center/serviced/domain"
+	"github.com/control-center/serviced/utils"
 )
 
 var DefaultHealthCheckAPITest = HealthCheckAPITest{apiResults: DefaultTestHealthCheckResults}
@@ -98,7 +101,7 @@ type HealthCheckAPITest struct {
 }
 
 func InitHealthCheckAPITest(args ...string) {
-	c := New(DefaultHealthCheckAPITest, TestConfigReader(make(map[string]string)))
+	c := New(DefaultHealthCheckAPITest, utils.TestConfigReader(make(map[string]string)))
 	c.exitDisabled = true
 	c.Run(args)
 }

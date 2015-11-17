@@ -16,6 +16,8 @@
 // and reporting the state and health of those services back to the master
 // serviced.
 
+// +build integration
+
 package node
 
 import (
@@ -74,47 +76,6 @@ func TestValidOwnerSpec(t *testing.T) {
 			t.Logf("%s should be a valid owner spec", spec)
 			t.Fail()
 		}
-	}
-}
-
-// Test parsing docker version
-func Test_parseDockerVersion(t *testing.T) {
-
-	const exampleOutput = `Client version: 0.6.6
-Go version (client): go1.2rc3
-Git commit (client): 6d42040
-Server version: 0.6.6
-Git commit (server): 6d42040
-Go version (server): go1.2rc3
-Last stable version: 0.6.6
-`
-	const exampleOutput2 = `Client version: 0.6.6
-Go version (client): go1.2rc3
-Git commit (client): 6d42040
-Server version: 0.6.6-dev
-Git commit (server): b65e710
-Go version (server): go1.2rc3
-Last stable version: 0.6.6
-`
-	exampleVersion := DockerVersion{
-		Client: []int{0, 6, 6},
-		Server: []int{0, 6, 6},
-	}
-
-	version, err := parseDockerVersion(exampleOutput)
-	if err != nil {
-		t.Fatalf("Problem parsing example docker version: %s", err)
-	}
-	if !version.equals(&exampleVersion) {
-		t.Fatalf("unexpected version: %v vs %v", version, exampleVersion)
-	}
-
-	version, err = parseDockerVersion(exampleOutput2)
-	if err != nil {
-		t.Fatalf("Problem parsing example2 docker version: %s", err)
-	}
-	if !version.equals(&exampleVersion) {
-		t.Fatalf("unexpected version: %v vs %v", version, exampleVersion)
 	}
 }
 

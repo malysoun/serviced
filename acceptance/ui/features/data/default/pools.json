@@ -1,19 +1,24 @@
 {
-  "pools": 
+  "pools":
   {
     "defaultPool": {
       "name": "default",
-      "description": "Default Pool"
+      "description": "default pool"
     },
 
     "pool2": {
-      "name": "test",
-      "description": "First Extra Pool"
+      "name": "testPool2",
+      "description": "another pool"
     },
 
     "pool3": {
-      "name": "another test",
-      "description": "Second Extra Pool"
+      "name": "testPool3",
+      "description": "yet another pool"
+    },
+
+    "pool4": {
+      "name": "testPool4",
+      "description": "another pool"
     }
   }
 }

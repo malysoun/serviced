@@ -61,6 +61,7 @@ func (inst instances) Swap(i, j int)      { inst[i], inst[j] = inst[j], inst[i] 
 // ServiceNode is the zookeeper client Node for services
 type ServiceNode struct {
 	*service.Service
+	Locked  bool
 	version interface{}
 }
 
@@ -71,12 +72,12 @@ func (node *ServiceNode) GetID() string {
 
 // Create implements zzk.Node
 func (node *ServiceNode) Create(conn client.Connection) error {
-	return UpdateService(conn, *node.Service)
+	return UpdateService(conn, *node.Service, false)
 }
 
 // Update implements zzk.Node
 func (node *ServiceNode) Update(conn client.Connection) error {
-	return UpdateService(conn, *node.Service)
+	return conn.Set(servicepath(node.ID), node)
 }
 
 // Version implements client.Node
@@ -119,37 +120,14 @@ func (l *ServiceListener) PostProcess(p map[string]struct{}) {}
 
 // Spawn watches a service and syncs the number of running instances
 func (l *ServiceListener) Spawn(shutdown <-chan interface{}, serviceID string) {
-	// set up the service alerter
-	if err := setupAlert(l.conn, serviceID); err != nil {
-		glog.Errorf("Could not set up alerter for service %s: %s", serviceID, err)
-		return
-	}
-
 	for {
 		var retry <-chan time.Time
 		var err error
 
-		// set up the global lock
-		var glock <-chan client.Event
-		if exists, err := l.conn.Exists(zkServiceLock); err != nil && err != client.ErrNoNode {
-			glog.Errorf("Could not monitor service lock: %s", err)
-			return
-		} else if exists {
-			if _, glock, err = l.conn.ChildrenW(zkServiceLock); err != nil {
-				glog.Errorf("Could not monitor service lock: %s", err)
-				return
-			}
-		}
-
-		// CC-1050: watch the service alerter
-		alertEvent, err := l.conn.GetW(path.Join(zkServiceAlert, serviceID), &ServiceAlert{})
-		if err != nil {
-			glog.Errorf("Could not monitor instance alerts for service %s: %s", serviceID, err)
-			return
-		}
-
+		var svcnode ServiceNode
 		var svc service.Service
-		serviceEvent, err := l.conn.GetW(l.GetPath(serviceID), &ServiceNode{Service: &svc})
+		svcnode.Service = &svc
+		serviceEvent, err := l.conn.GetW(l.GetPath(serviceID), &svcnode)
 		if err != nil {
 			glog.Errorf("Could not load service %s: %s", serviceID, err)
 			return
@@ -171,7 +149,7 @@ func (l *ServiceListener) Spawn(shutdown <-chan interface{}, serviceID string) {
 			case service.SVCStop:
 				l.stop(rss)
 			case service.SVCRun:
-				if !l.sync(&svc, rss) {
+				if !l.sync(svcnode.Locked, &svc, rss) {
 					retry = time.After(retryTimeout)
 				}
 			case service.SVCPause:
@@ -184,16 +162,6 @@ func (l *ServiceListener) Spawn(shutdown <-chan interface{}, serviceID string) {
 		glog.V(2).Infof("Service %s (%s) waiting for event", svc.Name, svc.ID)
 
 		select {
-		case <-glock:
-			// passthrough
-			glog.V(3).Infof("Receieved a global lock event, resyncing")
-		case e := <-alertEvent:
-			if e.Type == client.EventNodeDeleted {
-				glog.V(2).Infof("Shutting down service %s (%s) due to node delete", svc.Name, svc.ID)
-				l.stop(rss)
-				return
-			}
-			glog.V(2).Infof("Receieved an alert event for service %s (%s): %v", svc.Name, svc.ID, e)
 		case e := <-serviceEvent:
 			if e.Type == client.EventNodeDeleted {
 				glog.V(2).Infof("Shutting down service %s (%s) due to node delete", svc.Name, svc.ID)
@@ -217,21 +185,48 @@ func (l *ServiceListener) Spawn(shutdown <-chan interface{}, serviceID string) {
 	}
 }
 
+// getActiveHosts returns a map of all the available hosts
+func (l *ServiceListener) getActiveHosts() (map[string]struct{}, error) {
+	hosts, err := GetActiveHosts(l.conn)
+	if err != nil {
+		return nil, err
+	}
+	hostmap := make(map[string]struct{})
+	for _, host := range hosts {
+		hostmap[host] = struct{}{}
+	}
+	return hostmap, nil
+}
+
 // getServiceStates returns all the valid service states on a service
 func (l *ServiceListener) getServiceStates(svc *service.Service, stateIDs []string) ([]dao.RunningService, error) {
+	// figure out which hosts are still available
+	hosts, err := l.getActiveHosts()
+	if err != nil {
+		return nil, err
+	}
 	var rss []dao.RunningService
 	for _, stateID := range stateIDs {
+		// get the service state
 		var state servicestate.ServiceState
 		if err := l.conn.Get(servicepath(svc.ID, stateID), &ServiceStateNode{ServiceState: &state}); err != nil {
 			if err != client.ErrNoNode {
 				glog.Errorf("Could not look up service instance %s for service %s (%s): %s", stateID, svc.Name, svc.ID, err)
 				return nil, err
 			}
-		} else if exists, err := l.conn.Exists(hostpath(state.HostID, state.ID)); err != nil && err != client.ErrNoNode {
-			glog.Errorf("Could not look up host instance %s on host %s for service %s: %s", state.ID, state.HostID, state.ServiceID, err)
-			return nil, err
-		} else if !exists {
-			glog.Warningf("Service instance %s not found on host %s, removing", state.ID, state.HostID)
+			continue
+		}
+		// is the host currently active?
+		var isActive bool
+		if _, isActive = hosts[state.HostID]; isActive {
+			if isActive, err = l.conn.Exists(hostpath(state.HostID, state.ID)); err != nil && err != client.ErrNoNode {
+				glog.Errorf("Could not look up host instance %s on host %s for service %s: %s", state.ID, state.HostID, state.ServiceID, err)
+				return nil, err
+			}
+		}
+		if !isActive {
+			// if the host is not active, remove the node
+			glog.Infof("Service instance %s of service %s (%s) running on host %s (%s) is not active, rescheduling", state.ID, svc.Name, svc.ID, state.HostIP, state.HostID)
 			if err := removeInstance(l.conn, state.ServiceID, state.HostID, state.ID); err != nil {
 				glog.Errorf("Could not delete service instance %s for service %s: %s", state.ID, state.ServiceID, err)
 				return nil, err
@@ -248,7 +243,8 @@ func (l *ServiceListener) getServiceStates(svc *service.Service, stateIDs []stri
 	return rss, nil
 }
 
-func (l *ServiceListener) sync(svc *service.Service, rss []dao.RunningService) bool {
+// sync synchronizes the number of running instances for this service
+func (l *ServiceListener) sync(locked bool, svc *service.Service, rss []dao.RunningService) bool {
 	// sort running services by instance ID, so that you stop instances by the
 	// lowest instance ID first and start instances with the greatest instance
 	// ID last.
@@ -259,6 +255,7 @@ func (l *ServiceListener) sync(svc *service.Service, rss []dao.RunningService) b
 		// resumeInstance updates the service state ONLY if it has a PAUSED DesiredState
 		if err := resumeInstance(l.conn, state.HostID, state.ID); err != nil {
 			glog.Warningf("Could not resume paused service instance %s (%s) for service %s on host %s: %s", state.ID, state.Name, state.ServiceID, state.HostID, err)
+			return false
 		}
 	}
 
@@ -278,10 +275,7 @@ func (l *ServiceListener) sync(svc *service.Service, rss []dao.RunningService) b
 	if netInstances > 0 {
 		// If the service lock is enabled, do not try to start any service instances
 		// This will prevent the retry restart from activating
-		if locked, err := IsServiceLocked(l.conn); err != nil {
-			glog.Errorf("Could not check service lock: %s", err)
-			return true
-		} else if locked {
+		if locked {
 			glog.Warningf("Could not start %d instances; service %s (%s) is locked", netInstances, svc.Name, svc.ID)
 			return true
 		}
@@ -321,6 +315,7 @@ func (l *ServiceListener) sync(svc *service.Service, rss []dao.RunningService) b
 	return true
 }
 
+// start schedules the given service instances with the provided instance ID.
 func (l *ServiceListener) start(svc *service.Service, instanceIDs []int) int {
 	var i, id int
 
@@ -331,16 +326,6 @@ func (l *ServiceListener) start(svc *service.Service, instanceIDs []int) int {
 			l.Lock()
 			defer l.Unlock()
 
-			// If the service lock is enabled, do not try to start the service instance
-			glog.V(2).Infof("Scheduler lock acquired for service %s (%s); checking service lock", svc.Name, svc.ID)
-			if locked, err := IsServiceLocked(l.conn); err != nil {
-				glog.Errorf("Could not check service lock: %s", err)
-				return false
-			} else if locked {
-				glog.Warningf("Could not start instance %d; service %s (%s) is locked", instanceID, svc.Name, svc.ID)
-				return false
-			}
-			glog.V(2).Infof("Service is not locked, selecting a host for service %s (%s) #%d", svc.Name, svc.ID, id)
 			host, err := l.handler.SelectHost(svc)
 			if err != nil {
 				glog.Warningf("Could not assign a host to service %s (%s): %s", svc.Name, svc.ID, err)
@@ -376,6 +361,7 @@ func (l *ServiceListener) start(svc *service.Service, instanceIDs []int) int {
 	return i + 1
 }
 
+// stop unschedules the provided service instances
 func (l *ServiceListener) stop(rss []dao.RunningService) {
 	for _, state := range rss {
 		if err := StopServiceInstance(l.conn, state.HostID, state.ID); err != nil {
@@ -387,6 +373,7 @@ func (l *ServiceListener) stop(rss []dao.RunningService) {
 	}
 }
 
+// pause updates the state of the given service instance to paused
 func (l *ServiceListener) pause(rss []dao.RunningService) {
 	for _, state := range rss {
 		// pauseInstance updates the service state ONLY if it has a RUN DesiredState
@@ -434,19 +421,14 @@ func SyncServices(conn client.Connection, services []service.Service) error {
 }
 
 // UpdateService updates a service node if it exists, otherwise creates it
-func UpdateService(conn client.Connection, svc service.Service) error {
+func UpdateService(conn client.Connection, svc service.Service, locked bool) error {
 	var node ServiceNode
 	spath := servicepath(svc.ID)
 
-	// For some reason you can't just create the node with the service data
-	// already set.  Trust me, I tried.  It was very aggravating.
+	node.Service = &service.Service{}
+	node.Locked = locked
 	if err := conn.Get(spath, &node); err != nil {
 		if err == client.ErrNoNode {
-			// Set up the service alert
-			if err := setupAlert(conn, svc.ID); err != nil {
-				glog.Errorf("Could not set up alert for service %s (%s): %s", svc.Name, svc.ID, err)
-				return err
-			}
 			// Create the service node
 			if err := conn.Create(spath, &node); err != nil {
 				glog.Errorf("Could not create node at %s: %s", spath, err)
@@ -481,7 +463,6 @@ func RemoveService(conn client.Connection, serviceID string) error {
 		return fmt.Errorf("service %s has %d running instances", serviceID, instances)
 	}
 	// Delete the service
-	defer removeAlert(conn, serviceID)
 	return conn.Delete(servicepath(serviceID))
 }
 
@@ -517,10 +498,11 @@ func WaitService(shutdown <-chan interface{}, conn client.Connection, serviceID 
 
 			// Get the service node and verify that the number of running instances meets or exceeds the number
 			// of instances required by the service
-			var service ServiceNode
-			if err := conn.Get(servicepath(serviceID), &service); err != nil {
+			var node ServiceNode
+			node.Service = &service.Service{}
+			if err := conn.Get(servicepath(serviceID), &node); err != nil {
 				return err
-			} else if count >= service.Instances {
+			} else if count >= node.Instances {
 				return nil
 			}
 		case service.SVCPause:

@@ -11,11 +11,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package agent implements a service that runs on a serviced node. It is
-// responsible for ensuring that a particular node is running the correct services
-// and reporting the state and health of those services back to the master
-// serviced.
-
 package isvcs
 
 import (
@@ -102,7 +97,7 @@ func NewManager(imagesDir, volumesDir string) *Manager {
 
 // checks to see if the given repo:tag exists in docker
 func (m *Manager) imageExists(repo, tag string) (bool, error) {
-	if _, err := docker.FindImage(commons.JoinRepoTag(repo, tag), false); err == docker.ErrNoSuchImage {
+	if _, err := docker.FindImage(commons.JoinRepoTag(repo, tag), false); docker.IsImageNotFound(err) {
 		return false, nil
 	} else if err != nil {
 		return false, err
@@ -214,7 +209,7 @@ func (m *Manager) wipe() error {
 		ctr.Delete(true)
 	})
 
-	return ctr.Start(10 * time.Second)
+	return ctr.Start()
 }
 
 // loadImages() loads all the images defined in the registered services

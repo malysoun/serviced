@@ -161,9 +161,12 @@ deb: stage_deb
 		-s dir \
 		-d nfs-kernel-server \
 		-d net-tools \
+		-d libdevmapper1.02.1 \
+		-d libdevmapper-event1.02.1 \
 		-d nfs-common \
-		-d 'lxc-docker-1.6.0' \
+		-d 'docker-engine (= 1.9.0-0~trusty)' \
 		-d logrotate \
+		-d rsync \
 		-t deb \
 		-a x86_64 \
 		-C $(PKGROOT) \
@@ -191,8 +194,13 @@ rpm: stage_rpm
 		-d net-tools \
 		-d util-linux \
 		-d bash-completion \
-		-d 'zenoss-docker = 1.6.0' \
+		-d device-mapper \
+		-d device-mapper-event \
+		-d device-mapper-event-libs \
+		-d device-mapper-libs \
+		-d 'docker-engine = 1.9.0' \
 		-d logrotate \
+		-d rsync \
 		-t rpm \
 		-a x86_64 \
 		-C $(PKGROOT) \
@@ -207,6 +215,7 @@ rpm: stage_rpm
 		--after-install rpm/postinstall \
 		--before-remove rpm/preuninstall \
 		--after-remove rpm/postuninstall \
+		--rpm-pretrans rpm/pretrans \
 		--config-files /etc/default/serviced \
 		.
 
@@ -215,4 +224,3 @@ tgz: stage_tgz
 	tar cvfz /tmp/$(FULL_NAME)-$(GIT_COMMIT).tgz -C $(PKGROOT)/ .
 	chown $(DUID):$(DGID) /tmp/$(FULL_NAME)-$(GIT_COMMIT).tgz
 	mv /tmp/$(FULL_NAME)-$(GIT_COMMIT).tgz .
-

@@ -17,13 +17,16 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"github.com/codegangsta/cli"
 	"github.com/control-center/serviced/cli/api"
 	"github.com/control-center/serviced/isvcs"
 	"github.com/control-center/serviced/servicedversion"
+	"github.com/control-center/serviced/utils"
 	"github.com/control-center/serviced/validation"
+	"github.com/control-center/serviced/volume"
 	"github.com/zenoss/glog"
 )
 
@@ -33,14 +36,14 @@ const defaultRPCPort = 4979
 type ServicedCli struct {
 	driver       api.API
 	app          *cli.App
-	config       ConfigReader
+	config       utils.ConfigReader
 	exitDisabled bool
 }
 
 // New instantiates a new command-line client
-func New(driver api.API, config ConfigReader) *ServicedCli {
+func New(driver api.API, config utils.ConfigReader) *ServicedCli {
 	if config == nil {
-		panic("Missing configuration data!")
+		glog.Fatal("Missing configuration data!")
 	}
 	defaultOps := getDefaultOptions(config)
 	masterIP := config.StringVal("MASTER_IP", "127.0.0.1")
@@ -68,21 +71,25 @@ func New(driver api.API, config ConfigReader) *ServicedCli {
 		cli.BoolFlag{"master", "run in master mode, i.e., the control center service"},
 		cli.BoolFlag{"agent", "run in agent mode, i.e., a host in a resource pool"},
 		cli.IntFlag{"mux", defaultOps.MuxPort, "multiplexing port"},
-		cli.StringFlag{"var", defaultOps.VarPath, "path to store serviced data"},
+		cli.StringFlag{"volumes-path", defaultOps.VolumesPath, "path where application data is stored"},
+		cli.StringFlag{"isvcs-path", defaultOps.IsvcsPath, "path where internal application data is stored"},
+		cli.StringFlag{"backups-path", defaultOps.BackupsPath, "default path where backups are stored"},
 		cli.StringFlag{"keyfile", defaultOps.KeyPEMFile, "path to private key file (defaults to compiled in private key)"},
 		cli.StringFlag{"certfile", defaultOps.CertPEMFile, "path to public certificate file (defaults to compiled in public cert)"},
 		cli.StringSliceFlag{"zk", convertToStringSlice(defaultOps.Zookeepers), "Specify a zookeeper instance to connect to (e.g. -zk localhost:2181)"},
-		// TODO: 1.1
-		// cli.StringSliceFlag{"remote-zk", &remotezks, "Specify a zookeeper instance to connect to (e.g. -remote-zk remote:2181)"},
 		cli.StringSliceFlag{"mount", convertToStringSlice(defaultOps.Mount), "bind mount: DOCKER_IMAGE,HOST_PATH[,CONTAINER_PATH]"},
-		cli.StringFlag{"fstype", defaultOps.FSType, "driver for underlying file system"},
+		cli.StringFlag{"fstype", string(defaultOps.FSType), "driver for underlying file system"},
 		cli.StringSliceFlag{"alias", convertToStringSlice(defaultOps.HostAliases), "list of aliases for this host, e.g., localhost"},
-		cli.IntFlag{"es-startup-timeout", defaultOps.ESStartupTimeout, "time to wait on elasticsearch startup before bailing"},
+		cli.IntFlag{"es-startup-timeout", defaultOps.ESStartupTimeout, "time (in seconds) to wait on elasticsearch startup before bailing"},
 		cli.IntFlag{"max-container-age", defaultOps.MaxContainerAge, "maximum age (seconds) of a stopped container before removing"},
 		cli.IntFlag{"max-dfs-timeout", defaultOps.MaxDFSTimeout, "max timeout to perform a dfs snapshot"},
 		cli.StringFlag{"virtual-address-subnet", defaultOps.VirtualAddressSubnet, "/16 subnet for virtual addresses"},
 		cli.StringFlag{"master-pool-id", defaultOps.MasterPoolID, "master's pool ID"},
 		cli.StringFlag{"admin-group", defaultOps.AdminGroup, "system group that can log in to control center"},
+		cli.StringSliceFlag{"storage-opts", convertToStringSlice(defaultOps.StorageArgs), "storage args to initialize filesystem"},
+		cli.StringSliceFlag{"isvcs-start", convertToStringSlice(defaultOps.StartISVCS), "isvcs to start on agent"},
+		cli.IntFlag{"isvcs-zk-id", defaultOps.IsvcsZKID, "zookeeper id when running in a cluster"},
+		cli.StringSliceFlag{"isvcs-zk-quorum", convertToStringSlice(defaultOps.IsvcsZKQuorum), "isvcs zookeeper host quorum (e.g. -isvcs-zk-quorum zk1@localhost:2888:3888)"},
 
 		cli.BoolTFlag{"report-stats", "report container statistics"},
 		cli.StringFlag{"host-stats", defaultOps.HostStats, "container statistics for host:port"},
@@ -95,6 +102,9 @@ func New(driver api.API, config ConfigReader) *ServicedCli {
 		cli.IntFlag{"max-rpc-clients", defaultOps.MaxRPCClients, "max number of rpc clients to an endpoint"},
 		cli.IntFlag{"rpc-dial-timeout", defaultOps.RPCDialTimeout, "timeout for creating rpc connections"},
 		cli.IntFlag{"snapshot-ttl", defaultOps.SnapshotTTL, "snapshot TTL in hours, 0 to disable"},
+		cli.StringFlag{"controller-binary", defaultOps.ControllerBinary, "path to the container controller binary"},
+		cli.StringFlag{"log-driver", defaultOps.DockerLogDriver, "log driver for docker containers"},
+		cli.StringSliceFlag{"log-config", convertToStringSlice(defaultOps.DockerLogConfig), "comma-separated list of key=value settings for docker log driver"},
 
 		// Reimplementing GLOG flags :(
 		cli.BoolTFlag{"logtostderr", "log to standard error instead of files"},
@@ -123,6 +133,7 @@ func New(driver api.API, config ConfigReader) *ServicedCli {
 	c.initDocker()
 	c.initScript()
 	c.initServer()
+	c.initVolume()
 
 	return c
 }
@@ -149,13 +160,13 @@ func (c *ServicedCli) cmdInit(ctx *cli.Context) error {
 		Agent:                ctx.GlobalBool("agent"),
 		MuxPort:              ctx.GlobalInt("mux"),
 		TLS:                  true,
-		VarPath:              ctx.GlobalString("var"),
+		VolumesPath:          ctx.GlobalString("volumes-path"),
+		IsvcsPath:            ctx.GlobalString("isvcs-path"),
+		BackupsPath:          ctx.GlobalString("backups-path"),
 		KeyPEMFile:           ctx.GlobalString("keyfile"),
 		CertPEMFile:          ctx.GlobalString("certfile"),
 		Zookeepers:           ctx.GlobalStringSlice("zk"),
-		RemoteZookeepers:     ctx.GlobalStringSlice("remote-zk"),
 		Mount:                ctx.GlobalStringSlice("mount"),
-		FSType:               ctx.GlobalString("fstype"),
 		HostAliases:          ctx.GlobalStringSlice("alias"),
 		ESStartupTimeout:     ctx.GlobalInt("es-startup-timeout"),
 		ReportStats:          ctx.GlobalBool("report-stats"),
@@ -173,17 +184,38 @@ func (c *ServicedCli) cmdInit(ctx *cli.Context) error {
 		LogstashES:           ctx.GlobalString("logstash-es"),
 		LogstashMaxDays:      ctx.GlobalInt("logstash-max-days"),
 		LogstashMaxSize:      ctx.GlobalInt("logstash-max-size"),
+		LogstashURL:          ctx.GlobalString("logstashurl"),
 		DebugPort:            ctx.GlobalInt("debug-port"),
 		AdminGroup:           ctx.GlobalString("admin-group"),
 		MaxRPCClients:        ctx.GlobalInt("max-rpc-clients"),
 		RPCDialTimeout:       ctx.GlobalInt("rpc-dial-timeout"),
 		SnapshotTTL:          ctx.GlobalInt("snapshot-ttl"),
+		StorageArgs:          ctx.GlobalStringSlice("storage-opts"),
+		ControllerBinary:     ctx.GlobalString("controller-binary"),
+		StartISVCS:           ctx.GlobalStringSlice("isvcs-start"),
+		IsvcsZKID:            ctx.GlobalInt("isvcs-zk-id"),
+		IsvcsZKQuorum:        ctx.GlobalStringSlice("isvcs-zk-quorum"),
+		DockerLogDriver:      ctx.GlobalString("log-driver"),
+		DockerLogConfig:      ctx.GlobalStringSlice("log-config"),
 	}
 	if os.Getenv("SERVICED_MASTER") == "1" {
 		options.Master = true
 	}
 	if os.Getenv("SERVICED_AGENT") == "1" {
 		options.Agent = true
+	}
+
+	options.Endpoint = validateEndpoint(options)
+
+	if options.Master {
+		fstype := ctx.GlobalString("fstype")
+		options.FSType = volume.DriverType(fstype)
+	} else {
+		options.FSType = volume.DriverTypeNFS
+	}
+
+	if len(options.StorageArgs) == 0 {
+		options.StorageArgs = getDefaultStorageOptions(options.FSType)
 	}
 
 	if err := validation.IsSubnet16(options.VirtualAddressSubnet); err != nil {
@@ -212,6 +244,28 @@ func (c *ServicedCli) exit(code int) error {
 	}
 	os.Exit(code)
 	return nil
+}
+
+// validateEndpoint gets the endpoint to use if the user did not specify one.
+// Takes other configuration options into account while determining the default.
+func validateEndpoint(options api.Options) string {
+	// Not printing anything in here because it shows up in help, version, etc.
+	endpoint := options.Endpoint
+	if len(endpoint) == 0 {
+		if options.Master || !options.Agent {
+			// Master has multiple backup sources: OUTBOUND_IP or query network configuration.
+			// No role probably means user is running us on the Master and assumes we know how
+			// to connect to ourselves.
+			if len(options.OutboundIP) > 0 {
+				endpoint = fmt.Sprintf("%s:%s", options.OutboundIP, options.RPCPort)
+			} else if ip, err := utils.GetIPAddress(); err == nil {
+				endpoint = fmt.Sprintf("%s:%s", ip, options.RPCPort)
+			}
+		} else {
+			// On pure Agent, ENDPOINT is required to know where Master is (we can't just guess)
+		}
+	}
+	return endpoint
 }
 
 func setLogging(ctx *cli.Context) error {
@@ -278,6 +332,16 @@ func setLogging(ctx *cli.Context) error {
 }
 
 func setIsvcsEnv(ctx *cli.Context) error {
+	if zkid := ctx.GlobalInt("isvcs-zk-id"); zkid > 0 {
+		if err := isvcs.AddEnv(fmt.Sprintf("zookeeper:ZKID=%d", zkid)); err != nil {
+			return err
+		}
+	}
+	if zkquorum := strings.Join(ctx.GlobalStringSlice("isvcs-zk-quorum"), ","); zkquorum != "" {
+		if err := isvcs.AddEnv("zookeeper:ZK_QUORUM=" + zkquorum); err != nil {
+			return err
+		}
+	}
 	for _, val := range ctx.GlobalStringSlice("isvcs-env") {
 		if err := isvcs.AddEnv(val); err != nil {
 			return err

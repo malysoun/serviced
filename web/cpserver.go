@@ -14,11 +14,11 @@
 package web
 
 import (
+	"crypto/tls"
 	"fmt"
 	"log"
 	"mime"
 	"net/http"
-	"net/http/httputil"
 	"net/url"
 	"os"
 	"os/exec"
@@ -30,8 +30,10 @@ import (
 	"github.com/control-center/serviced/node"
 	"github.com/control-center/serviced/proxy"
 	"github.com/control-center/serviced/rpc/master"
+	"github.com/control-center/serviced/utils"
 	"github.com/control-center/serviced/zzk"
 	"github.com/control-center/serviced/zzk/registry"
+	"github.com/control-center/serviced/zzk/service"
 	"github.com/gorilla/mux"
 	"github.com/zenoss/glog"
 	"github.com/zenoss/go-json-rest"
@@ -45,12 +47,14 @@ type ServiceConfig struct {
 	hostaliases []string
 	muxTLS      bool
 	muxPort     int
+	certPEMFile string
+	keyPEMFile  string
 }
 
 var defaultHostAlias string
 
 // NewServiceConfig creates a new ServiceConfig
-func NewServiceConfig(bindPort string, agentPort string, stats bool, hostaliases []string, muxTLS bool, muxPort int, aGroup string) *ServiceConfig {
+func NewServiceConfig(bindPort string, agentPort string, stats bool, hostaliases []string, muxTLS bool, muxPort int, aGroup string, certPEMFile string, keyPEMFile string) *ServiceConfig {
 	cfg := ServiceConfig{
 		bindPort:    bindPort,
 		agentPort:   agentPort,
@@ -58,6 +62,8 @@ func NewServiceConfig(bindPort string, agentPort string, stats bool, hostaliases
 		hostaliases: hostaliases,
 		muxTLS:      muxTLS,
 		muxPort:     muxPort,
+		certPEMFile: certPEMFile,
+		keyPEMFile:  keyPEMFile,
 	}
 	adminGroup = aGroup
 	return &cfg
@@ -74,49 +80,50 @@ func (sc *ServiceConfig) Serve(shutdown <-chan (interface{})) {
 	//start watching global vhosts as they are added/deleted/updated in services
 	go sc.syncAllVhosts(shutdown)
 
-	// Reverse proxy to the web UI server.
-	uihandler := func(w http.ResponseWriter, r *http.Request) {
-		uiURL, err := url.Parse("http://127.0.0.1:7878")
-		if err != nil {
-			glog.Errorf("Can't parse UI URL: %v", err)
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
+	mime.AddExtensionType(".json", "application/json")
+	mime.AddExtensionType(".woff", "application/font-woff")
 
-		ui := httputil.NewSingleHostReverseProxy(uiURL)
-		if ui == nil {
-			glog.Errorf("Can't proxy UI request: %v", err)
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-
-		ui.ServeHTTP(w, r)
+	accessLogFile, err := os.OpenFile("/var/log/serviced.access.log", os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0640)
+	if err != nil {
+		glog.Errorf("Could not create access log file.")
 	}
+
+	uiHandler := rest.ResourceHandler{
+		EnableRelaxedContentType: true,
+		Logger: log.New(accessLogFile, "", log.LstdFlags),
+	}
+
+	routes := sc.getRoutes()
+	uiHandler.SetRoutes(routes...)
 
 	httphandler := func(w http.ResponseWriter, r *http.Request) {
 		glog.V(2).Infof("httphandler handling request: %+v", r)
 
-		vhostExists := func(vhostname string) bool {
+		getVhost := func(vhostname string) (map[string]struct{}, bool) {
 			allvhostsLock.RLock()
 			defer allvhostsLock.RUnlock()
-			_, ok := allvhosts[vhostname]
-			return ok
+			svcs, found := allvhosts[vhostname]
+			return svcs, found
 		}
 
-		httphost := r.Host
+		httphost := strings.Split(r.Host, ":")[0]
 		parts := strings.Split(httphost, ".")
 		subdomain := parts[0]
 		glog.V(2).Infof("httphost: '%s'  subdomain: '%s'", httphost, subdomain)
 
-		if vhostExists(httphost) {
+		if svcIDs, found := getVhost(httphost); found {
 			glog.V(2).Infof("httphost: calling sc.vhosthandler")
-			sc.vhosthandler(w, r, httphost)
-		} else if vhostExists(subdomain) {
+			sc.vhosthandler(w, r, httphost, svcIDs)
+		} else if svcIDs, found := getVhost(subdomain); found {
 			glog.V(2).Infof("httphost: calling sc.vhosthandler")
-			sc.vhosthandler(w, r, subdomain)
+			sc.vhosthandler(w, r, subdomain, svcIDs)
 		} else {
-			glog.V(2).Infof("httphost: calling uihandler")
-			uihandler(w, r)
+			glog.V(2).Infof("httphost: calling uiHandler")
+			if r.TLS == nil {
+				http.Redirect(w, r, fmt.Sprintf("https://%s:%s", r.Host, sc.bindPort), http.StatusMovedPermanently)
+				return
+			}
+			uiHandler.ServeHTTP(w, r)
 		}
 	}
 
@@ -139,55 +146,49 @@ func (sc *ServiceConfig) Serve(shutdown <-chan (interface{})) {
 	http.Handle("/", r)
 
 	// FIXME: bubble up these errors to the caller
-	certfile, err := proxy.TempCertFile()
-	if err != nil {
-		glog.Fatalf("Could not prepare cert.pem file: %s", err)
+	certFile := sc.certPEMFile
+	if len(certFile) == 0 {
+		tempCertFile, err := proxy.TempCertFile()
+		if err != nil {
+			glog.Fatalf("Could not prepare cert.pem file: %s", err)
+		}
+		certFile = tempCertFile
 	}
-	keyfile, err := proxy.TempKeyFile()
-	if err != nil {
-		glog.Fatalf("Could not prepare key.pem file: %s", err)
+	keyFile := sc.keyPEMFile
+	if len(keyFile) == 0 {
+		tempKeyFile, err := proxy.TempKeyFile()
+		if err != nil {
+			glog.Fatalf("Could not prepare key.pem file: %s", err)
+		}
+		keyFile = tempKeyFile
 	}
+
 	go func() {
 		redirect := func(w http.ResponseWriter, req *http.Request) {
 			http.Redirect(w, req, fmt.Sprintf("https://%s:%s%s", req.Host, sc.bindPort, req.URL), http.StatusMovedPermanently)
 		}
-		err = http.ListenAndServe(":80", http.HandlerFunc(redirect))
+		err := http.ListenAndServe(":80", http.HandlerFunc(redirect))
 		if err != nil {
 			glog.Errorf("could not setup HTTP webserver: %s", err)
 		}
 	}()
 	go func() {
-		err = http.ListenAndServeTLS(sc.bindPort, certfile, keyfile, nil)
+		// This cipher suites and tls min version change may not be needed with golang 1.5
+		// https://github.com/golang/go/issues/10094
+		// https://github.com/golang/go/issues/9364
+		config := &tls.Config{
+			MinVersion:               utils.MinTLS(),
+			PreferServerCipherSuites: true,
+			CipherSuites:             utils.CipherSuites(),
+		}
+		server := &http.Server{Addr: sc.bindPort, TLSConfig: config}
+		err := server.ListenAndServeTLS(certFile, keyFile)
 		if err != nil {
 			glog.Fatalf("could not setup HTTPS webserver: %s", err)
 		}
 	}()
 	blockerChan := make(chan bool)
 	<-blockerChan
-}
-
-// ServeUI is a blocking call that runs the UI hander on port :7878
-func (sc *ServiceConfig) ServeUI() {
-	mime.AddExtensionType(".json", "application/json")
-	mime.AddExtensionType(".woff", "application/font-woff")
-
-	accessLogFile, err := os.OpenFile("/var/log/serviced.access.log", os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0640)
-	if err != nil {
-		glog.Errorf("Could not create access log file.")
-	}
-
-	handler := rest.ResourceHandler{
-		EnableRelaxedContentType: true,
-		Logger: log.New(accessLogFile, "", log.LstdFlags),
-	}
-
-	routes := sc.getRoutes()
-	handler.SetRoutes(routes...)
-
-	// FIXME: bubble up these errors to the caller
-	if err := http.ListenAndServe(":7878", &handler); err != nil {
-		glog.Fatalf("could not setup internal web server: %s", err)
-	}
 }
 
 var methods = []string{"GET", "POST", "PUT", "DELETE"}
@@ -260,14 +261,13 @@ func (sc *ServiceConfig) isCollectingStats() handlerFunc {
 
 func (sc *ServiceConfig) getClient() (c *node.ControlClient, err error) {
 	// setup the client
-	c, err = node.NewControlClient(sc.agentPort)
-	if err != nil {
-		glog.Fatalf("Could not create a control center client: %v", err)
+	if c, err = node.NewControlClient(sc.agentPort); err != nil {
+		glog.Errorf("Could not create a control center client: %s", err)
 	}
-	return c, err
+	return
 }
 
-func (sc *ServiceConfig) getMasterClient() (*master.Client, error) {
+func (sc *ServiceConfig) getMasterClient() (master.ClientInterface, error) {
 	glog.V(2).Infof("start getMasterClient ... sc.agentPort: %+v", sc.agentPort)
 	c, err := master.NewClient(sc.agentPort)
 	if err != nil {
@@ -309,14 +309,14 @@ func (sc *ServiceConfig) noAuth(realfunc ctxhandlerFunc) handlerFunc {
 
 type requestContext struct {
 	sc     *ServiceConfig
-	master *master.Client
+	master master.ClientInterface
 }
 
 func newRequestContext(sc *ServiceConfig) *requestContext {
 	return &requestContext{sc: sc}
 }
 
-func (ctx *requestContext) getMasterClient() (*master.Client, error) {
+func (ctx *requestContext) getMasterClient() (master.ClientInterface, error) {
 	if ctx.master == nil {
 		c, err := ctx.sc.getMasterClient()
 		if err != nil {
@@ -342,32 +342,43 @@ type getRoutes func(sc *ServiceConfig) []rest.Route
 
 var (
 	allvhostsLock sync.RWMutex
-	allvhosts     map[string]string
+	allvhosts     map[string]map[string]struct{} // map of vhostname to service IDs that have the vhost enabled
 )
 
 func init() {
-	allvhosts = make(map[string]string)
+	allvhosts = make(map[string]map[string]struct{})
 }
 
 func (sc *ServiceConfig) syncAllVhosts(shutdown <-chan interface{}) error {
 	rootConn, err := zzk.GetLocalConnection("/")
 	if err != nil {
-		glog.Fatalf("syncAllVhosts - Error getting root zk connection: %v", err)
+		glog.Errorf("syncAllVhosts - Error getting root zk connection: %v", err)
 		return err
 	}
 
-	cancelChan := make(chan bool)
+	cancelChan := make(chan interface{})
 	syncVhosts := func(conn client.Connection, parentPath string, childIDs ...string) {
 		glog.V(1).Infof("syncVhosts STARTING for parentPath:%s childIDs:%v", parentPath, childIDs)
 
+		newVhosts := make(map[string]map[string]struct{})
+		for _, sv := range childIDs {
+			//cast to a VHostKey so we don't have to care about the format of the key string
+			vhostKey := service.VHostKey(sv)
+			vhost := vhostKey.VHost()
+			vhostServices, found := newVhosts[vhost]
+			if !found {
+				vhostServices = make(map[string]struct{})
+				newVhosts[vhost] = vhostServices
+			}
+			if vhostKey.IsEnabled() {
+				vhostServices[vhostKey.ServiceID()] = struct{}{}
+			}
+		}
+
+		//lock for as short a time as possible
 		allvhostsLock.Lock()
 		defer allvhostsLock.Unlock()
-
-		allvhosts = make(map[string]string)
-		for _, sv := range childIDs {
-			parts := strings.SplitN(sv, "_", 2)
-			allvhosts[parts[1]] = parts[0]
-		}
+		allvhosts = newVhosts
 		glog.V(1).Infof("allvhosts: %+v", allvhosts)
 	}
 

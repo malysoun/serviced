@@ -11,11 +11,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package agent implements a service that runs on a serviced node. It is
-// responsible for ensuring that a particular node is running the correct services
-// and reporting the state and health of those services back to the master
-// serviced.
-
 package isvcs
 
 import (
@@ -113,34 +108,41 @@ type portBinding struct {
 }
 
 type IServiceDefinition struct {
-	Name          string                             // name of the service (used in naming containers)
-	Repo          string                             // the service's docker repository
-	Tag           string                             // the service's docker repository tag
-	Command       func() string                      // the command to run in the container
-	Volumes       map[string]string                  // volumes to bind mount to the container
-	PortBindings  []portBinding                      // defines how ports are exposed on the host
-	HealthChecks  map[string]healthCheckDefinition   // a set of functions to verify the service is healthy
-	Configuration map[string]interface{}             // service specific configuration
-	Notify        func(*IService, interface{}) error // A function to run when notified of a data event
-	PostStart     func(*IService) error              // A function to run after the initial start of the service
-	HostNetwork   bool                               // enables host network in the container
-	Links         []string                           // List of links to other containers in the form of <name>:<alias>
-	StartGroup    uint16                             // Start up group number
+	ID             string                             // the ID of the service associated
+	Name           string                             // name of the service (used in naming containers)
+	Repo           string                             // the service's docker repository
+	Tag            string                             // the service's docker repository tag
+	Command        func() string                      // the command to run in the container
+	Volumes        map[string]string                  // volumes to bind mount to the container
+	PortBindings   []portBinding                      // defines how ports are exposed on the host
+	HealthChecks   map[string]healthCheckDefinition   // a set of functions to verify the service is healthy
+	Configuration  map[string]interface{}             // service specific configuration
+	Notify         func(*IService, interface{}) error // A function to run when notified of a data event
+	PreStart       func(*IService) error              // A function to run before the initial start of the service
+	PostStart      func(*IService) error              // A function to run after the initial start of the service
+	Recover        func(path string) error            // A recovery step if the service fails to start
+	HostNetwork    bool                               // enables host network in the container
+	Links          []string                           // List of links to other containers in the form of <name>:<alias>
+	StartGroup     uint16                             // Start up group number
+	StartupTimeout time.Duration                      // How long to wait for the service to start up (this is the timeout for the initial 'startup' healthcheck)
 }
 
 type IService struct {
 	IServiceDefinition
-	exited         <-chan int
-	root           string
-	actions        chan actionrequest
-	startTime      time.Time
-	restartCount   int
+	root         string
+	actions      chan actionrequest
+	startTime    time.Time
+	restartCount int
+
+	channelLock *sync.RWMutex
+	exited      <-chan int
+
 	lock           *sync.RWMutex
 	healthStatuses map[string]*domain.HealthCheckStatus
 }
 
 func NewIService(sd IServiceDefinition) (*IService, error) {
-	if strings.TrimSpace(sd.Name) == "" || strings.TrimSpace(sd.Repo) == "" || sd.Command == nil {
+	if strings.TrimSpace(sd.Name) == "" || strings.TrimSpace(sd.Repo) == "" || strings.TrimSpace(sd.ID) == "" || sd.Command == nil {
 		return nil, ErrBadContainerSpec
 	}
 
@@ -148,7 +150,10 @@ func NewIService(sd IServiceDefinition) (*IService, error) {
 		sd.Configuration = make(map[string]interface{})
 	}
 
-	svc := IService{sd, nil, "", make(chan actionrequest), time.Time{}, 0, &sync.RWMutex{}, nil}
+	if sd.StartupTimeout == 0 { //Initialize startup timeout to Default for all IServices if not specified
+		sd.StartupTimeout = WAIT_FOR_INITIAL_HEALTHCHECK
+	}
+	svc := IService{sd, "", make(chan actionrequest), time.Time{}, 0, &sync.RWMutex{}, nil, &sync.RWMutex{}, nil}
 	if len(svc.HealthChecks) > 0 {
 		svc.healthStatuses = make(map[string]*domain.HealthCheckStatus, len(svc.HealthChecks))
 		for name, healthCheckDefinition := range svc.HealthChecks {
@@ -166,14 +171,21 @@ func NewIService(sd IServiceDefinition) (*IService, error) {
 		svc.healthStatuses[name] = &domain.HealthCheckStatus{
 			Name:      name,
 			Status:    "unknown",
-			Interval:  0,
+			Interval:  3.156e9,
 			Timestamp: 0,
 			StartedAt: 0,
 		}
 	}
 
 	envPerService[sd.Name] = make(map[string]string)
-	envPerService[sd.Name]["CONTROLPLANE_SERVICE_ID"] = svc.Name
+	envPerService[sd.Name]["CONTROLPLANE_SERVICE_ID"] = svc.ID
+
+	if sd.PreStart != nil {
+		if err := sd.PreStart(&svc); err != nil {
+			glog.Errorf("Could not prestart service %s: %s", sd.Name, err)
+			return nil, err
+		}
+	}
 	go svc.run()
 
 	return &svc, nil
@@ -184,6 +196,9 @@ func (svc *IService) SetRoot(root string) {
 }
 
 func (svc *IService) IsRunning() bool {
+	svc.channelLock.RLock()
+	defer svc.channelLock.RUnlock()
+
 	return svc.exited != nil
 }
 
@@ -235,6 +250,13 @@ func (svc *IService) getResourcePath(p string) string {
 	}
 
 	return filepath.Join(svc.root, svc.Name, p)
+}
+
+func (svc *IService) setExitedChannel(newChan <-chan int) {
+	svc.channelLock.Lock()
+	defer svc.channelLock.Unlock()
+
+	svc.exited = newChan
 }
 
 func (svc *IService) name() string {
@@ -365,7 +387,7 @@ func (svc *IService) start() (<-chan int, error) {
 	ctr.OnEvent(docker.Die, func(cid string) { svc.remove(notify) })
 
 	// start the container
-	if err := ctr.Start(10 * time.Second); err != nil && err != docker.ErrAlreadyStarted {
+	if err := ctr.Start(); err != nil && err != docker.ErrAlreadyStarted {
 		svc.setStoppedHealthStatus(fmt.Errorf("could not start service: %s", err))
 		return nil, err
 	}
@@ -433,12 +455,13 @@ func (svc *IService) remove(notify chan<- int) {
 	defer func() { notify <- rc }()
 
 	// delete the container
-	if err := ctr.Delete(true); err != nil {
+	if err := ctr.Delete(true); err != nil && err != docker.ErrNoSuchContainer {
 		glog.Errorf("Could not remove isvc %s: %s", ctr.Name, err)
 	}
 }
 
 func (svc *IService) run() {
+	var newExited <-chan int
 	var err error
 	var collecting bool
 	haltStats := make(chan struct{})
@@ -450,7 +473,7 @@ func (svc *IService) run() {
 			switch req.action {
 			case stop:
 				glog.Infof("Stopping isvc %s", svc.Name)
-				if svc.exited == nil {
+				if !svc.IsRunning() {
 					req.response <- ErrNotRunning
 					continue
 				}
@@ -472,16 +495,26 @@ func (svc *IService) run() {
 					svc.setStoppedHealthStatus(ExitError(rc))
 					glog.Errorf("isvc %s received exit code %d", svc.Name, rc)
 				}
-				svc.exited = nil
+				svc.setExitedChannel(nil)
 				req.response <- nil
 			case start:
 				glog.Infof("Starting isvc %s", svc.Name)
-				if svc.exited != nil {
+				if svc.IsRunning() {
 					req.response <- ErrRunning
 					continue
 				}
 
-				if svc.exited, err = svc.start(); err != nil {
+				newExited, err = svc.start()
+				if err != nil && svc.Recover != nil {
+					glog.Warningf("ISVC %s failed to start; attempting recovery", svc.name())
+					if e := svc.Recover(svc.getResourcePath("")); e != nil {
+						glog.Errorf("Could not recover service %s: %s", svc.name(), e)
+					} else {
+						newExited, err = svc.start()
+					}
+				}
+				svc.setExitedChannel(newExited)
+				if err != nil {
 					req.response <- err
 					continue
 				}
@@ -495,7 +528,7 @@ func (svc *IService) run() {
 				req.response <- nil
 			case restart:
 				glog.Infof("Restarting isvc %s", svc.Name)
-				if svc.exited != nil {
+				if svc.IsRunning() {
 
 					if collecting {
 						haltStats <- struct{}{}
@@ -511,7 +544,9 @@ func (svc *IService) run() {
 					}
 					<-svc.exited
 				}
-				if svc.exited, err = svc.start(); err != nil {
+				newExited, err = svc.start()
+				svc.setExitedChannel(newExited)
+				if err != nil {
 					req.response <- err
 					continue
 				}
@@ -530,7 +565,9 @@ func (svc *IService) run() {
 			stopService := svc.isFlapping()
 			if !stopService {
 				glog.Infof("Restarting isvc %s ", svc.Name)
-				if svc.exited, err = svc.start(); err != nil {
+				newExited, err = svc.start()
+				svc.setExitedChannel(newExited)
+				if err != nil {
 					glog.Errorf("Error restarting isvc %s: %s", svc.Name, err)
 					stopService = true
 				}
@@ -546,7 +583,7 @@ func (svc *IService) run() {
 				}
 				glog.Errorf("isvc %s not restarted; failed too many times", svc.Name)
 				svc.stop()
-				svc.exited = nil
+				svc.setExitedChannel(nil)
 			}
 		}
 	}
@@ -628,7 +665,13 @@ func (svc *IService) startupHealthcheck() <-chan error {
 				currentTime := time.Now()
 				result = svc.runCheckOrTimeout(checkDefinition)
 				svc.setHealthStatus(result, currentTime.Unix())
-				if result == nil || time.Since(startCheck).Seconds() > WAIT_FOR_INITIAL_HEALTHCHECK.Seconds() {
+				elapsed := time.Since(startCheck)
+				if result == nil {
+					glog.Infof("Verified health status of %s after %s", svc.Name, elapsed)
+					break
+				} else if elapsed.Seconds() > svc.StartupTimeout.Seconds() {
+					glog.Errorf("Could not verify health status of %s after %s. Last health check returned %#v",
+						svc.Name, svc.StartupTimeout, result)
 					break
 				}
 
@@ -768,7 +811,7 @@ func (svc *IService) stats(halt <-chan struct{}) {
 			}
 
 			if cpuacctStat, err := cgroup.ReadCpuacctStat(cgroup.GetCgroupDockerStatsFilePath(ctr.ID, cgroup.Cpuacct)); err != nil {
-				glog.Warningf("Could not read CpuacctStat for isvc %s: %s", svc.Name, err)
+				glog.V(2).Infof("Could not read CpuacctStat for isvc %s: %s", svc.Name, err)
 				break
 			} else {
 				metrics.GetOrRegisterGauge("cgroup.cpuacct.system", registry).Update(cpuacctStat.System)
@@ -789,6 +832,7 @@ func (svc *IService) stats(halt <-chan struct{}) {
 				tagmap := make(map[string]string)
 				tagmap["isvc"] = "true"
 				tagmap["isvcname"] = svc.Name
+				tagmap["controlplane_service_id"] = svc.ID
 				if metric, ok := i.(metrics.Gauge); ok {
 					stats = append(stats, containerStat{name, strconv.FormatInt(metric.Value(), 10), t.Unix(), tagmap})
 				} else if metricf64, ok := i.(metrics.GaugeFloat64); ok {

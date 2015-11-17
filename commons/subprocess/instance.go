@@ -29,11 +29,11 @@ type Instance struct {
 	command        string
 	args           []string
 	env            []string
-	commandExit    chan error
+	commandExit    chan error // used to send command exit values to the parent controller
 	closing        chan chan error
-	closeLock      sync.Mutex    // mutex to synchronize Close() calls
-	sigtermTimeout time.Duration // sigterm timeout
-	signalChan     chan os.Signal
+	closeLock      sync.Mutex     // mutex to synchronize Close() calls
+	sigtermTimeout time.Duration  // sigterm timeout
+	signalChan     chan os.Signal // used to send signals to the command process
 }
 
 // New creates a subprocess.Instance
@@ -44,7 +44,7 @@ func New(sigtermTimeout time.Duration, env []string, command string, args ...str
 		env:            env,
 		commandExit:    make(chan error, 1),
 		sigtermTimeout: sigtermTimeout,
-		signalChan:     make(chan os.Signal),
+		signalChan:     make(chan os.Signal, 1),
 	}
 	go s.loop()
 	return s, s.commandExit, nil
@@ -52,7 +52,15 @@ func New(sigtermTimeout time.Duration, env []string, command string, args ...str
 
 // Notify sends the sig to the subprocess instance.
 func (s *Instance) Notify(sig os.Signal) {
-	s.signalChan <- sig
+	glog.V(1).Infof("Notify: sending signal %v", sig)
+	select {
+	case s.signalChan <- sig:
+		glog.V(1).Infof("Notify: sent signal %v", sig)
+	default:
+		// This may happen if we're trying to kill a process that has already died. The controller will first send
+		// SIGTERM, then it will try SIGKILL
+		glog.Warningf("Notify: unable to send signal %v because channel is full", sig)
+	}
 }
 
 // Close signals the subprocess to shutdown via sigterm. If sigterm fails to shutdown
@@ -87,7 +95,9 @@ func (s *Instance) loop() {
 		}()
 		return cmd
 	}
-	cmd := setUpCmd(s.commandExit)
+
+	processExit := make(chan error, 1) //lets us know when the process exits
+	cmd := setUpCmd(processExit)
 	var returnChan chan error
 	sigterm := make(chan error)
 	sigkill := make(<-chan time.Time)
@@ -96,14 +106,15 @@ func (s *Instance) loop() {
 	for {
 
 		select {
-
 		case s := <-s.signalChan:
+			glog.V(1).Infof("loop: sending signal %v", s)
 			cmd.Process.Signal(s)
+			glog.V(1).Infof("loop: sent signal %v", s)
 
-		case exitError := <-s.commandExit:
+		case exitError := <-processExit:
+			glog.V(1).Infof("loop: process exited with error %v", exitError)
 			select {
-			case s.commandExit <- exitError:
-			default:
+			case s.commandExit <- exitError: // tell our the parent controller that the command has exited
 			}
 			return
 

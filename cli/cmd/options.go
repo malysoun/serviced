@@ -22,10 +22,14 @@ import (
 	"github.com/codegangsta/cli"
 	"github.com/control-center/serviced/cli/api"
 	"github.com/control-center/serviced/commons/docker"
+	"github.com/control-center/serviced/isvcs"
+	"github.com/control-center/serviced/node"
 	"github.com/control-center/serviced/utils"
+	"github.com/control-center/serviced/volume"
+	"github.com/zenoss/glog"
 )
 
-func getDefaultOptions(config ConfigReader) api.Options {
+func getDefaultOptions(config utils.ConfigReader) api.Options {
 	masterIP := config.StringVal("MASTER_IP", "127.0.0.1")
 
 	options := api.Options{
@@ -39,15 +43,13 @@ func getDefaultOptions(config ConfigReader) api.Options {
 		MuxPort:              config.IntVal("MUX_PORT", 22250),
 		KeyPEMFile:           config.StringVal("KEY_FILE", ""),
 		CertPEMFile:          config.StringVal("CERT_FILE", ""),
-		VarPath:              config.StringVal("VARPATH", getDefaultVarPath(config.StringVal("HOME", ""))),
 		Zookeepers:           config.StringSlice("ZK", []string{}),
-		RemoteZookeepers:     []string{},
 		HostStats:            config.StringVal("STATS_PORT", fmt.Sprintf("%s:8443", masterIP)),
 		StatsPeriod:          config.IntVal("STATS_PERIOD", 10),
 		MCUsername:           "scott",
 		MCPasswd:             "tiger",
-		FSType:               config.StringVal("FS_TYPE", "rsync"),
-		ESStartupTimeout:     getDefaultESStartupTimeout(config.IntVal("ES_STARTUP_TIMEOUT", 600)),
+		FSType:               volume.DriverType(config.StringVal("FS_TYPE", "rsync")),
+		ESStartupTimeout:     getDefaultESStartupTimeout(config.IntVal("ES_STARTUP_TIMEOUT", isvcs.DEFAULT_ES_STARTUP_TIMEOUT_SECONDS)),
 		HostAliases:          config.StringSlice("VHOST_ALIASES", []string{}),
 		Verbosity:            config.IntVal("LOG_LEVEL", 0),
 		StaticIPs:            config.StringSlice("STATIC_IPS", []string{}),
@@ -64,9 +66,37 @@ func getDefaultOptions(config ConfigReader) api.Options {
 		MaxRPCClients:        config.IntVal("MAX_RPC_CLIENTS", 3),
 		RPCDialTimeout:       config.IntVal("RPC_DIAL_TIMEOUT", 30),
 		SnapshotTTL:          config.IntVal("SNAPSHOT_TTL", 12),
+		StartISVCS:           config.StringSlice("ISVCS_START", []string{}),
+		IsvcsZKID:            config.IntVal("ISVCS_ZOOKEEPER_ID", 0),
+		IsvcsZKQuorum:        config.StringSlice("ISVCS_ZOOKEEPER_QUORUM", []string{}),
+		DockerLogDriver:      config.StringVal("DOCKER_LOG_DRIVER", "json-file"),
+		DockerLogConfig:      config.StringSlice("DOCKER_LOG_CONFIG", []string{"max-file=5", "max-size=10m"}),
 	}
 
-	options.Endpoint = config.StringVal("ENDPOINT", getDefaultEndpoint(options.OutboundIP, options.RPCPort))
+	options.Endpoint = config.StringVal("ENDPOINT", "")
+
+	// Set the path to the controller binary
+	dir, _, err := node.ExecPath()
+	if err != nil {
+		glog.Warningf("Unable to find path to current serviced binary; assuming /opt/serviced/bin")
+		dir = "/opt/serviced/bin"
+	}
+	defaultControllerBinary := filepath.Join(dir, "serviced-controller")
+	options.ControllerBinary = config.StringVal("CONTROLLER_BINARY", defaultControllerBinary)
+
+	// Set the volumePath to /tmp if running serviced as just an agent
+	homepath := config.StringVal("HOME", "")
+	varpath := config.StringVal("VARPATH", getDefaultVarPath(homepath))
+	if options.Master {
+		options.IsvcsPath = config.StringVal("ISVCS_PATH", filepath.Join(varpath, "isvcs"))
+		options.VolumesPath = config.StringVal("VOLUMES_PATH", filepath.Join(varpath, "volumes"))
+		options.BackupsPath = config.StringVal("BACKUPS_PATH", filepath.Join(varpath, "backups"))
+	} else {
+		tmpvarpath := getDefaultVarPath("")
+		options.IsvcsPath = filepath.Join(varpath, "isvcs")
+		options.VolumesPath = filepath.Join(tmpvarpath, "volumes")
+		options.BackupsPath = filepath.Join(varpath, "backups")
+	}
 
 	return options
 }
@@ -77,16 +107,6 @@ func getDefaultDockerRegistry() string {
 	} else {
 		return fmt.Sprintf("%s:5000", hostname)
 	}
-}
-
-func getDefaultEndpoint(ip, port string) string {
-	if ip == "" {
-		var err error
-		if ip, err = utils.GetIPAddress(); err != nil {
-			panic(err)
-		}
-	}
-	return fmt.Sprintf("%s:%s", ip, port)
 }
 
 func getDefaultVarPath(home string) string {
@@ -102,7 +122,7 @@ func getDefaultVarPath(home string) string {
 }
 
 func getDefaultESStartupTimeout(timeout int) int {
-	const minTimeout = 30
+	minTimeout := isvcs.MIN_ES_STARTUP_TIMEOUT_SECONDS
 	if timeout < minTimeout {
 		timeout = minTimeout
 	}

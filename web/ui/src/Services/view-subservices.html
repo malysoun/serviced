@@ -5,7 +5,7 @@
         <div class="serviceControls" sticky sticky-class="stickied">
 
             <h2 class="serviceTitle">
-                <health-icon ng-if="services.current.children.length || services.current.model.Startup" data-status="services.current.status" style="display: inline-block; font-size: 0.6em;"></health-icon>
+                <health-icon ng-if="services.current.model.Startup" data-status="services.current.status" style="display: inline-block; font-size: 0.6em;"></health-icon>
                 {{services.current.model.Name}}
                 <span class="version" ng-show="services.current.model.Version"> (v{{services.current.model.Version}})</span>
             </h2>
@@ -19,15 +19,15 @@
 
                 <div style="display: inline-block; padding-left: 10px; border-left: 1px solid #CCC; height: 1em; "></div>
                 <div ng-if="services.current.desiredState !== 2" style="display: inline-block;">
-                    <button ng-click="clickRunningApp(services.current, 'start')" class="btn btn-link action">
+                    <button ng-click="clickRunning(services.current, 'start')" class="btn btn-link action">
                         <i class="glyphicon glyphicon-play"></i>
                         <span translate>start</span>
                     </button>
-                    <button ng-click="clickRunningApp(services.current, 'stop')" class="btn btn-link action">
+                    <button ng-click="clickRunning(services.current, 'stop')" class="btn btn-link action">
                         <i class="glyphicon glyphicon-stop"></i>
                         <span translate>stop</span>
                     </button>
-                    <button ng-class="{disabled: services.current.desiredState === 0}" ng-click="clickRunningApp(services.current, 'restart')" class="btn btn-link action">
+                    <button ng-class="{disabled: services.current.desiredState === 0}" ng-click="clickRunning(services.current, 'restart')" class="btn btn-link action">
                         <i class="glyphicon glyphicon-refresh"></i>
                         <span translate>action_restart</span>
                     </button>
@@ -60,10 +60,20 @@
     <table jelly-table data-data="vhosts.data" data-config="vhostsTable" class="table">
         <tr ng-repeat="vhost in $data">
             <td data-title="'vhost_name'|translate" sortable="'Name'">{{vhost.Name}}</td>
-            <td data-title="'vhost_application'|translate" sortable="'Application'" ng-click="click_app(vhost.ApplicationId)" class="link">{{vhost.Application}}</td>
+            <td data-title="'vhost_application'|translate" sortable="'Application'">
+                <a href="#/services/{{vhost.ApplicationId}}" class="link" ng-click="routeToService(vhost.ApplicationId, $event)">{{vhost.Application}}</a>
+            </td>
             <td data-title="'vhost_service_endpoint'|translate" sortable="'ServiceEndpoint'">{{vhost.ServiceEndpoint}}</td>
             <td data-title="'vhost_url'|translate" sortable="'vhost_url(vhost.Name)'"><a href="{{vhost_url(vhost.Name)}}" target="_blank" class="link">{{vhost_url(vhost.Name)}}</a></td>
             <td data-title="'actions'|translate">
+                <button ng-class="{disabled: vhost.Enabled }" ng-click="clickVHostEnable(vhost)" class="btn btn-link action">
+                    <i class="glyphicon glyphicon-play"></i>
+                    <span translate>start</span>
+                </button>
+                <button ng-class="{disabled: !vhost.Enabled }" ng-click="clickVHostDisable(vhost)" class="btn btn-link action">
+                    <i class="glyphicon glyphicon-stop"></i>
+                    <span translate>stop</span>
+                </button>
                 <button ng-click="clickRemoveVirtualHost(vhost)" class="btn btn-link action" ng-disabled="$data.length <= 1">
                     <i class="glyphicon glyphicon-remove-sign"></i>
                     <span translate>label_delete</span>
@@ -78,7 +88,9 @@
         <h3 class="pull-left" translate>label_ip_assignments</h3>
         <table jelly-table data-data="ips.data" data-config="ipsTable" class="table">
             <tr ng-repeat="ip in $data">
-                <td data-title="'tbl_virtual_ip_service'|translate" sortable="'ServiceName'" ng-click="click_app(ip.ServiceID)" class="link">{{ip.ServiceName}}</td>
+                <td data-title="'tbl_virtual_ip_service'|translate" sortable="'ServiceName'">
+                    <a href="#/services/{{ip.ServiceID}}" class="link" ng-click="routeToService(ip.ServiceID, $event)">{{ip.ServiceName}}</a>
+                </td>
                 <td data-title="'tbl_virtual_ip_assignment_type'|translate" sortable="'AssignmentType'">{{ip.AssignmentType}}</td>
                 <td data-title="'tbl_virtual_ip_host'|translate" sortable="'HostID'" ng-click="click_host(ip.HostID)" class="link">{{getHostName(ip.HostID)}}</td>
                 <td data-title="'tbl_virtual_ip_pool'|translate" sortable="'PoolID'" ng-click="click_pool(ip.PoolID)" class="link">{{ip.PoolID|cut:true:50}}</td>
@@ -115,22 +127,22 @@
         <table jelly-table data-data="services.subservices" data-config="servicesTable" class="table">
             <thead>
                 <tr>
-                  <th style="white-space: nowrap; width:200px;" translate>label_service</th>
+                  <th style="width: 200px;" translate>label_service</th>
                   <th style="width: 75px; line-height: 11px;">Instances <span style="font-size: .75em;">healthy/total</span></th>
-                  <th style="width: 600px;" translate>deployed_tbl_description</th>
-                  <th ng-if="!services.current.isIsvc()" translate>running_tbl_actions</th>
+                  <th translate>deployed_tbl_description</th>
+                  <th style="width: 210px;" ng-if="!services.current.isIsvc()" translate>running_tbl_actions</th>
                 </tr>
             </thead>
             <tr ng-repeat="app in $data" data-id="{{app.model.ID}}">
-              <td data-title="'label_service'|translate">
+              <td data-title="'label_service'|translate" style="overflow: hidden; white-space: nowrap;">
                 <span ng-style="calculateIndent(app)"></span>
                 <span ng-if="app.children.length" ng-click="toggleChildren($event, app)" class="table-collapse glyphicon glyphicon-chevron-down"></span>
                 <span ng-if="!app.children.length" ng-style="indent(1)"></span>
-                <span ng-click="click_app(app.model.ID)" class="link">
+                <a href="#/services/{{app.model.ID}}" ng-click="routeToService(app.model.ID, $event)" class="link">
                     {{app.model.Name}}
                     <div class="overcomIndicator" ng-class="{'bad': !app.resourcesGood() && !app.isIsvc()}" title="An instance is oversubscribed."></div>
                     <span class="version" ng-show="app.model.Version"> (v{{app.model.Version}})</span>
-                </span>
+                </a>
               </td>
               <td data-title="'Instances'" style="text-align:center;">
                 <div ng-if="!app.children.length">
@@ -143,15 +155,15 @@
               <td data-title="'running_tbl_actions'|translate" ng-if="!services.current.isIsvc()">
                 <div ng-if="!app.isIsvc()">
                   <div ng-if="app.desiredState !== 2">
-                    <button ng-class="{disabled: app.desiredState === 1}" ng-click="clickRunning(app, 'start', servicesFactory)" class="btn btn-link action">
+                    <button ng-class="{disabled: app.desiredState === 1}" ng-click="clickRunning(app, 'start')" class="btn btn-link action">
                         <i class="glyphicon glyphicon-play"></i>
                         <span translate>start</span>
                     </button>
-                    <button ng-class="{disabled: app.desiredState === 0}" ng-click="clickRunning(app, 'stop', servicesFactory)" class="btn btn-link action">
+                    <button ng-class="{disabled: app.desiredState === 0}" ng-click="clickRunning(app, 'stop')" class="btn btn-link action">
                         <i class="glyphicon glyphicon-stop"></i>
                         <span translate>stop</span>
                     </button>
-                    <button ng-class="{disabled: app.desiredState === 0}" ng-click="clickRunning(app, 'restart', servicesFactory)" class="btn btn-link action">
+                    <button ng-class="{disabled: app.desiredState === 0}" ng-click="clickRunning(app, 'restart')" class="btn btn-link action">
                         <i class="glyphicon glyphicon-refresh"></i>
                         <span translate>action_restart</span>
                     </button>
@@ -166,7 +178,7 @@
     </div>
 
     <!-- This table has running instances -->
-    <div ng-show="hasCurrentInstances() && !service.current.isIsvc()">
+    <div ng-show="hasCurrentInstances() && !services.current.isIsvc()">
         <h3 translate>running_tbl_instances</h3>
         <table jelly-table data-data="services.current.getServiceInstances()" data-config="instancesTable" class="table">
             <tr ng-repeat="app in $data" data-id="{{app.id}}.{{app.model.InstanceID}}">

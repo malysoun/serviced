@@ -11,6 +11,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// +build unit
+
 package cmd
 
 import (
@@ -25,9 +27,11 @@ import (
 	"github.com/control-center/serviced/cli/api"
 	"github.com/control-center/serviced/dao"
 	"github.com/control-center/serviced/domain"
+	"github.com/control-center/serviced/domain/applicationendpoint"
 	"github.com/control-center/serviced/domain/host"
 	"github.com/control-center/serviced/domain/pool"
 	"github.com/control-center/serviced/domain/service"
+	"github.com/control-center/serviced/utils"
 )
 
 const (
@@ -41,6 +45,7 @@ var DefaultServiceAPITest = ServiceAPITest{
 	pools:           DefaultTestPools,
 	hosts:           DefaultTestHosts,
 	snapshots:       DefaultTestSnapshots,
+	endpoints:       DefaultEndpoints,
 }
 
 var DefaultTestServices = []service.Service{
@@ -129,6 +134,38 @@ var DefaultTestRunningServices = []dao.RunningService{
 	},
 }
 
+var DefaultEndpoints = []applicationendpoint.EndpointReport{
+	{
+		Endpoint: applicationendpoint.ApplicationEndpoint{
+			ServiceID:     "test-service-2",
+			InstanceID:    1,
+			Application:   "endpointName1",
+			Purpose:       "export",
+			HostID:        "hostID1",
+			HostIP:        "hostIP1",
+			HostPort:      10,
+			ContainerID:   "containerID1",
+			ContainerIP:   "containerIP1",
+			ContainerPort: 100,
+		},
+		Messages: []string{},
+	}, {
+		Endpoint: applicationendpoint.ApplicationEndpoint{
+			ServiceID:     "test-service-2",
+			InstanceID:    2,
+			Application:   "endpointName2",
+			Purpose:       "import",
+			HostID:        "hostID2",
+			HostIP:        "hostIP2",
+			HostPort:      20,
+			ContainerID:   "containerID2",
+			ContainerIP:   "containerIP2",
+			ContainerPort: 200,
+		},
+		Messages: []string{},
+	},
+}
+
 var (
 	ErrNoServiceFound        = errors.New("no service found")
 	ErrNoRunningServiceFound = errors.New("no matches found")
@@ -145,10 +182,11 @@ type ServiceAPITest struct {
 	pools           []pool.ResourcePool
 	hosts           []host.Host
 	snapshots       []dao.SnapshotInfo
+	endpoints       []applicationendpoint.EndpointReport
 }
 
 func InitServiceAPITest(args ...string) {
-	c := New(DefaultServiceAPITest, TestConfigReader(make(map[string]string)))
+	c := New(DefaultServiceAPITest, utils.TestConfigReader(make(map[string]string)))
 	c.exitDisabled = true
 	c.Run(args)
 }
@@ -179,6 +217,22 @@ func (t ServiceAPITest) GetHosts() ([]host.Host, error) {
 		return nil, t.errs["GetHosts"]
 	}
 	return t.hosts, nil
+}
+
+func (t ServiceAPITest) GetHostMap() (map[string]host.Host, error) {
+	if t.errs["GetHostMap"] != nil {
+		return nil, t.errs["GetHostMap"]
+	}
+	return make(map[string]host.Host), nil
+}
+
+func (t ServiceAPITest) GetEndpoints(serviceID string, reportImports, reportExports, validate bool) ([]applicationendpoint.EndpointReport, error)  {
+	if t.errs["GetEndpoints"] != nil {
+		return nil, t.errs["GetEndpoints"]
+	} else if serviceID == "test-service-2" {
+		return t.endpoints, nil
+	}
+	return []applicationendpoint.EndpointReport{}, nil
 }
 
 func (t ServiceAPITest) GetService(id string) (*service.Service, error) {
@@ -297,17 +351,6 @@ func (t ServiceAPITest) AssignIP(config api.IPConfig) error {
 	return nil
 }
 
-func (t ServiceAPITest) StartProxy(config api.ControllerOptions) error {
-	if s, err := t.GetService(config.ServiceID); err != nil {
-		return err
-	} else if s == nil {
-		return ErrNoServiceFound
-	}
-
-	fmt.Printf("%s\n", strings.Join(config.Command, " "))
-	return nil
-}
-
 func (t ServiceAPITest) StartShell(config api.ShellConfig) error {
 	if s, err := t.GetService(config.ServiceID); err != nil {
 		return err
@@ -351,11 +394,12 @@ func (t ServiceAPITest) GetSnapshotsByServiceID(id string) ([]dao.SnapshotInfo, 
 	return snapshots, nil
 }
 
-func (t ServiceAPITest) AddSnapshot(id string, description string) (string, error) {
+func (t ServiceAPITest) AddSnapshot(config api.SnapshotConfig) (string, error) {
 	if t.errs["AddSnapshot"] != nil {
 		return "", t.errs["AddSnapshot"]
 	}
-	return fmt.Sprintf("%s-snapshot description=%q", id, description), nil
+
+	return fmt.Sprintf("%s-snapshot description=%q tags=%q", config.ServiceID, config.Message, config.Tag), nil
 }
 
 func TestServicedCLI_CmdServiceList_one(t *testing.T) {
@@ -966,6 +1010,24 @@ func ExampleServicedCLI_CmdServiceListSnapshots() {
 	// test-service-1-snapshot-2 description 2
 }
 
+func ExampleServicedCLI_CmdServiceListSnapshots_ShowTagsShort() {
+	InitServiceAPITest("serviced", "service", "list-snapshots", "test-service-1", "-t")
+
+	// Output:
+	// Snapshot                       Description        Tags
+	// test-service-1-snapshot-1      description 1      tag-1
+	// test-service-1-snapshot-2      description 2      tag-2,tag-3
+}
+
+func ExampleServicedCLI_CmdServiceListSnapshots_ShowTagsLong() {
+	InitServiceAPITest("serviced", "service", "list-snapshots", "test-service-1", "--show-tags")
+
+	// Output:
+	// Snapshot                       Description        Tags
+	// test-service-1-snapshot-1      description 1      tag-1
+	// test-service-1-snapshot-2      description 2      tag-2,tag-3
+}
+
 func ExampleServicedCLI_CmdServiceListSnapshots_usage() {
 	InitServiceAPITest("serviced", "service", "list-snapshots")
 
@@ -982,6 +1044,7 @@ func ExampleServicedCLI_CmdServiceListSnapshots_usage() {
 	//    serviced service list-snapshots SERVICEID
 	//
 	// OPTIONS:
+	//    --show-tags, -t	shows the tags associated with each snapshot
 }
 
 func ExampleServicedCLI_CmdServiceListSnapshots_fail() {
@@ -1004,14 +1067,21 @@ func ExampleServicedCLI_CmdServiceSnapshot() {
 	InitServiceAPITest("serviced", "service", "snapshot", "test-service-2")
 
 	// Output:
-	// test-service-2-snapshot description=""
+	// test-service-2-snapshot description="" tags=""
 }
 
 func ExampleServicedCLI_CmdServiceSnapshot_withDescription() {
 	InitServiceAPITest("serviced", "service", "snapshot", "test-service-2", "-d", "some description")
 
 	// Output:
-	// test-service-2-snapshot description="some description"
+	// test-service-2-snapshot description="some description" tags=""
+}
+
+func ExampleServicedCLI_CmdServiceSnapshot_withDescriptionAndTag() {
+	InitServiceAPITest("serviced", "service", "snapshot", "test-service-2", "-d", "some description", "-t", "tag1")
+
+	// Output:
+	// test-service-2-snapshot description="some description" tags="tag1"
 }
 
 func ExampleServicedCLI_CmdServiceSnapshot_usage() {
@@ -1031,6 +1101,8 @@ func ExampleServicedCLI_CmdServiceSnapshot_usage() {
 	//
 	// OPTIONS:
 	//    --description, -d 	a description of the snapshot
+	//    --tag, -t 		a unique tag for the snapshot
+
 }
 
 func ExampleServicedCLI_CmdServiceSnapshot_fail() {
@@ -1047,4 +1119,49 @@ func ExampleServicedCLI_CmdServiceSnapshot_err() {
 
 	// Output:
 	// service not found
+}
+
+func ExampleServicedCLI_CmdServiceEndpoints_usage() {
+	InitServiceAPITest("serviced", "service", "endpoints")
+
+	// Output:
+	// Incorrect Usage.
+	//
+	// NAME:
+	//    endpoints - List the endpoints defined for the service
+	//
+	// USAGE:
+	//    command endpoints [command options] [arguments...]
+	//
+	// DESCRIPTION:
+	//    serviced service endpoints SERVICEID
+	//
+	// OPTIONS:
+	//    --imports, -i	include only imported endpoints
+	//    --all, -a		include all endpoints (imports and exports)
+	//    --verify, -v		verify endpoints
+
+}
+
+func ExampleServicedCLI_CmdServiceEndpoints_err() {
+	pipeStderr(InitServiceAPITest, "serviced", "service", "endpoints", "test-service-0")
+
+	// Output:
+	// service not found
+}
+
+func ExampleServicedCLI_CmdServiceEndpoints_worksNoEndpoints() {
+	pipeStderr(InitServiceAPITest, "serviced", "service", "endpoints", "test-service-1")
+
+	// Output:
+	// Zenoss - no endpoints defined
+}
+
+func ExampleServicedCLI_CmdServiceEndpoints_works() {
+	pipeStderr(InitServiceAPITest, "serviced", "service", "endpoints", "test-service-2")
+
+	// Output:
+	// Name    ServiceID         Endpoint         Purpose    Host       HostIP     HostPort    ContainerID     ContainerIP     ContainerPort
+	// Zope    test-service-2    endpointName1    export     hostID1    hostIP1    10          containerID1    containerIP1    100
+	// Zope    test-service-2    endpointName2    import     hostID2    hostIP2    20          containerID2    containerIP2    200
 }

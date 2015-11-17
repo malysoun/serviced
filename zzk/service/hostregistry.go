@@ -177,8 +177,11 @@ func GetRegisteredHosts(conn client.Connection, cancel <-chan interface{}) ([]*h
 	}
 }
 
-func GetActiveHosts(conn client.Connection, poolID string) ([]string, error) {
+func GetActiveHosts(conn client.Connection) ([]string, error) {
 	ehosts, err := conn.Children(hostregpath())
+	if err == client.ErrNoNode {
+		return []string{}, nil
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -186,9 +189,14 @@ func GetActiveHosts(conn client.Connection, poolID string) ([]string, error) {
 	for _, ehostID := range ehosts {
 		var ehost host.Host
 		if err := conn.Get(hostregpath(ehostID), &HostNode{Host: &ehost}); err != nil {
-			return nil, err
+			glog.Warningf("Could not look up registration for host at %s: %s", ehostID, err)
+			continue
 		}
-		hostIDs = append(hostIDs, ehost.ID)
+		if exists, err := conn.Exists(hostpath(ehost.ID)); !exists {
+			glog.Warningf("Host %s (%s) is registered, but not available (%s).  Please restart this host.", ehost.ID, ehost.Name, err)
+		} else {
+			hostIDs = append(hostIDs, ehost.ID)
+		}
 	}
 	return hostIDs, nil
 }
@@ -239,6 +247,7 @@ func RemoveHost(cancel <-chan interface{}, conn client.Connection, hostID string
 	}
 
 	// wait until all the service instances have stopped
+loop:
 	for {
 		nodes, event, err := conn.ChildrenW(hostpath(hostID))
 		if err != nil {
@@ -246,12 +255,14 @@ func RemoveHost(cancel <-chan interface{}, conn client.Connection, hostID string
 		} else if len(nodes) == 0 {
 			break
 		}
+		glog.V(2).Infof("%d services still running on host %s", len(nodes), hostID)
 
 		select {
 		case <-event:
 			// pass
 		case <-cancel:
-			return ErrShutdown
+			glog.Warningf("Giving up on waiting for services on host %s to stop", hostID)
+			break loop
 		}
 	}
 

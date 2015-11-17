@@ -11,6 +11,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// +build unit
+
 package cmd
 
 import (
@@ -24,6 +26,7 @@ import (
 	"github.com/control-center/serviced/domain/host"
 	"github.com/control-center/serviced/domain/pool"
 	"github.com/control-center/serviced/facade"
+	"github.com/control-center/serviced/utils"
 )
 
 const (
@@ -77,7 +80,7 @@ type PoolAPITest struct {
 }
 
 func InitPoolAPITest(args ...string) {
-	New(DefaultPoolAPITest, TestConfigReader(make(map[string]string))).Run(args)
+	New(DefaultPoolAPITest, utils.TestConfigReader(make(map[string]string))).Run(args)
 }
 
 func (t PoolAPITest) GetResourcePools() ([]pool.ResourcePool, error) {

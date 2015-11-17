@@ -11,26 +11,28 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package agent implements a service that runs on a serviced node. It is
-// responsible for ensuring that a particular node is running the correct services
-// and reporting the state and health of those services back to the master
-// serviced.
-
 package isvcs
 
 import (
 	"github.com/control-center/serviced/utils"
 	"github.com/zenoss/glog"
+
+	"time"
 )
 
 var Mgr *Manager
 
 const (
-	IMAGE_REPO = "zenoss/serviced-isvcs"
-	IMAGE_TAG  = "v30"
+	IMAGE_REPO    = "zenoss/serviced-isvcs"
+	IMAGE_TAG     = "v38"
+	ZK_IMAGE_REPO = "zenoss/isvcs-zookeeper"
+	ZK_IMAGE_TAG  = "v1"
 )
 
-func Init() {
+func Init(esStartupTimeoutInSeconds int) {
+	elasticsearch_serviced.StartupTimeout = time.Duration(esStartupTimeoutInSeconds) * time.Second
+	elasticsearch_logstash.StartupTimeout = time.Duration(esStartupTimeoutInSeconds) * time.Second
+
 	Mgr = NewManager(utils.LocalDir("images"), utils.TempDir("var/isvcs"))
 
 	if err := Mgr.Register(elasticsearch_serviced); err != nil {
@@ -53,5 +55,17 @@ func Init() {
 	}
 	if err := Mgr.Register(dockerRegistry); err != nil {
 		glog.Fatalf("%s", err)
+	}
+}
+
+func InitServices(isvcNames []string) {
+	Mgr = NewManager(utils.LocalDir("images"), utils.TempDir("var/isvcs"))
+	for _, isvcName := range isvcNames {
+		switch isvcName {
+		case "zookeeper":
+			if err := Mgr.Register(zookeeper); err != nil {
+				glog.Fatalf("%s", err)
+			}
+		}
 	}
 }

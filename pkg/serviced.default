@@ -3,6 +3,10 @@
 # Need to set $HOME so Docker client can find .dockercfg
 # HOME=/root
 
+# Need to set $TMP so backups can have a place to spool snapshots and images
+# for backup
+# TMP=/tmp
+
 # Set the number of processors used by serviced
 # GOMAXPROCS=4
 
@@ -11,9 +15,6 @@
 
 # Set enable/disable the master role, set to 1/0, respectively
 # SERVICED_MASTER=0
-
-# Set the pool id for the master role
-# SERVICED_MASTER_POOLID=default
 
 # Set the the zookeeper ensemble, multiple masters should be comma separated
 # SERVICED_ZK={{SERVICED_MASTER_IP}}:2181
@@ -42,8 +43,18 @@
 # Set the mux port to listen on
 # SERVICED_MUX_PORT=22250
 
-# Set the VAR path for serviced
+# DEPRECATED: Set the var path for serviced. Use options below to specify paths
+# to the isvcs, volumes, and backups directories.
 # SERVICED_VARPATH=/opt/serviced/var
+
+# Set the ISVCS path for serviced internal data
+# SERVICED_ISVCS_PATH=/opt/serviced/var/isvcs
+
+# Set the VOLUMES path for serviced application data
+# SERVICED_VOLUMES_PATH=/opt/serviced/var/volumes
+
+# Set the BACKUPS path for serviced backups
+# SERVICED_BACKUPS_PATH=/opt/serviced/var/backups
 
 # Set the TLS keyfile
 # SERVICED_KEY_FILE=/etc/....
@@ -51,8 +62,8 @@
 # Set the TLS certfile
 # SERVICED_CERT_FILE=/etc/....
 
-# Set the driver type on the master for the distributed file system (rsync/btrfs)
-SERVICED_FS_TYPE=btrfs
+# Set the driver type on the master for the distributed file system (rsync/btrfs/devicemapper)
+# SERVICED_FS_TYPE=rsync
 
 # Set the aliases for this host (use in vhost muxing)
 # SERVICED_VHOST_ALIASES=foobar.com,example.com
@@ -107,6 +118,10 @@ SERVICED_FS_TYPE=btrfs
 # Max number tracked connections for iptables
 # SERVICED_IPTABLES_MAX_CONNECTIONS=655360
 
+# The number of hours a snapshot is retained before removal.
+# To disable snapshot removal, set the value to 0.
+# SERVICED_SNAPSHOT_TTL=12
+
 # The interval, in seconds, at which a serviced instance configured as agent
 # modifies its /opt/serviced/var/monitor/<IP-Address> file.
 # Default: 60     (1 minute)
@@ -127,5 +142,22 @@ SERVICED_FS_TYPE=btrfs
 # Overrides the default for the service migration image.
 # SERVICED_SERVICE_MIGRATION_TAG=1.0.2
 
+# Enables the following isvcs to run on the host (if not the master)
+# SERVICED_ISVCS_START=celery,elasticsearch,logstash,opentsdb,docker-registry,zookeeper
+
+# Specify the id no. of the zookeeper cluster node (must be unique amongst all
+# of the nodes in the cluster)
+# SERVICED_ISVCS_ZOOKEEPER_ID=
+
+# Specify nodes in the zookeeper quorum if this host is running as part of the
+# zookeeper quorum.  This takes the form of <ZKID#>@<IPAddress>:<PeerPort>:<LeaderPort>
+# SERVICED_ISVCS_ZOOKEEPER_QUORUM=1@host1:2888:3888,2@host2:2888:3888,3@host3:2888:3888
+
 # Arbitrary serviced daemon args
 # SERVICED_OPTS=
+
+# Direct port of Docker --log-driver option. Values include json-file, syslog, journald, gelf, fluentd, and none.
+# DOCKER_LOG_DRIVER=json-file
+
+# Comma-separated list of key=value options, corresponding to Docker --log-opt options.
+# DOCKER_LOG_CONFIG=max-file=5,max-size=10m

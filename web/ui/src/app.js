@@ -21,12 +21,12 @@ var DEBUG = false;
  * Main module & controllers
  ******************************************************************************/
 var controlplane = angular.module('controlplane', [
-    'ngRoute', 'ngCookies','ngDragDrop','pascalprecht.translate', 'ngAnimate',
+    'ngRoute', 'ngCookies','ngDragDrop','pascalprecht.translate',
     'angularMoment', 'zenNotify', 'serviceHealth', 'ui.datetimepicker',
     'modalService', 'angular-data.DSCacheFactory', 'ui.codemirror',
     'sticky', 'graphPanel', 'servicesFactory', 'healthIcon',
     'authService', 'miscUtils', 'hostsFactory', 'poolsFactory', 'instancesFactory', 'baseFactory',
-    'ngTable', 'jellyTable'
+    'ngTable', 'jellyTable', 'ngLocationUpdate'
 ]);
 
 controlplane.
@@ -152,7 +152,7 @@ controlplane.
     }).
     filter('prettyDate', function(){
         return function(dateString){
-            return moment(dateString).format('MMM Do YYYY, hh:mm:ss');
+            return moment(new Date(dateString)).format('MMM Do YYYY, hh:mm:ss');
         };
     }).
     // create a human readable "fromNow" string from
@@ -162,9 +162,40 @@ controlplane.
             return moment(date).fromNow();
         };
     })
-    .run(function($rootScope, $window){
+    .run(function($rootScope, $window, $location){
         // scroll to top of page on navigation
         $rootScope.$on("$routeChangeSuccess", function (event, currentRoute, previousRoute) {
             $window.scrollTo(0, 0);
+        });
+
+        var queryParams = $location.search(),
+            disableAnimation = false;
+
+        // option to disable animation for
+        // acceptance tests
+        if(queryParams["disable-animation"] === "true"){
+            disableAnimation = true;
+            $("body").addClass("no-animation");
+        }
+
+        var loaderEl = $(".loading_wrapper"),
+            isCleared = false;
+
+        $rootScope.$on("ready", function(){
+            setTimeout(function(){
+                if(!isCleared){
+                    if(disableAnimation){
+                        clearLoader();
+                    } else {
+                        loaderEl.addClass("hide_it").one("transitionend", clearLoader);
+                    }
+                }
+            }, 1000);
+
+            var clearLoader = function(){
+                loaderEl.remove();
+                $("body").removeClass("loading");
+                isCleared = true;
+            };
         });
     });

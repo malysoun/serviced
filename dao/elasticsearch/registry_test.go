@@ -11,6 +11,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// +build integration,!quick
+
 //This test is an integration test and need zookeeper which is why it isn't in the zzk/registry package
 package elasticsearch
 
@@ -18,7 +20,7 @@ import (
 	"path"
 
 	"github.com/control-center/serviced/coordinator/client"
-	"github.com/control-center/serviced/dao"
+	"github.com/control-center/serviced/domain/applicationendpoint"
 	"github.com/control-center/serviced/zzk/registry"
 	"github.com/zenoss/glog"
 	. "gopkg.in/check.v1"
@@ -81,11 +83,13 @@ func (dt *DaoTest) TestDao_EndpointRegistrySet(t *C) {
 	epr, err := registry.CreateEndpointRegistry(dt.zkConn)
 	t.Assert(err, IsNil)
 
-	aep := dao.ApplicationEndpoint{
+	aep := applicationendpoint.ApplicationEndpoint{
 		ServiceID:     "epn_service",
+		ContainerID:   "epn_container",
 		ContainerIP:   "192.168.0.1",
 		ContainerPort: 54321,
 		ProxyPort:     54321,
+		HostID:        "epn_host1",
 		HostIP:        "192.168.0.2",
 		HostPort:      12345,
 		Protocol:      "epn_tcp",
@@ -95,8 +99,6 @@ func (dt *DaoTest) TestDao_EndpointRegistrySet(t *C) {
 		ApplicationEndpoint: aep,
 		TenantID:            "epn_tenant",
 		EndpointID:          "epn_endpoint",
-		HostID:              "epn_host1",
-		ContainerID:         "epn_container",
 	}
 	t.Logf("Creating a new node: %+v", epn1)
 
@@ -239,19 +241,6 @@ func (dt *DaoTest) TestDao_EndpointRegistrySet(t *C) {
 		errC := make(chan error)
 		eventC := make(chan int)
 
-		// case 0: no parent
-		go func() {
-			parentKey := registry.TenantEndpointKey("bad_tenant", "bad_endpoint")
-			errC <- epr.WatchTenantEndpoint(dt.zkConn, parentKey, nil, nil, make(chan bool))
-		}()
-		select {
-		case err := <-errC:
-			t.Assert(err, Equals, client.ErrNoNode)
-		case <-time.After(5 * time.Second):
-			t.Fatalf("Timeout from WatchTenantEndpoint")
-			// TODO: cancel listener here
-		}
-
 		t.Logf("Starting endpoint listener")
 		go func() {
 			changeEvt := func(conn client.Connection, parent string, nodeIDs ...string) {
@@ -266,7 +255,7 @@ func (dt *DaoTest) TestDao_EndpointRegistrySet(t *C) {
 			_, err := epr.EnsureKey(dt.zkConn, parentKey)
 			t.Assert(err, IsNil)
 
-			epr.WatchTenantEndpoint(dt.zkConn, parentKey, changeEvt, errEvt, make(chan bool))
+			epr.WatchTenantEndpoint(dt.zkConn, parentKey, changeEvt, errEvt, make(chan interface{}))
 			close(errC)
 		}()
 
@@ -294,7 +283,7 @@ func (dt *DaoTest) TestDao_EndpointRegistrySet(t *C) {
 			// TODO: cancel listener here
 		}
 
-		// case 2: update an item (should not receieve an event)
+		// case 2: update an item (should not receive an event)
 		expected.ContainerIP = "192.168.23.12"
 		_, err = epr.SetItem(dt.zkConn, expected)
 		t.Assert(err, IsNil)

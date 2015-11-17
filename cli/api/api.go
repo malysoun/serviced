@@ -22,6 +22,7 @@ import (
 	"github.com/control-center/serviced/node"
 	"github.com/control-center/serviced/rpc/agent"
 	"github.com/control-center/serviced/rpc/master"
+	"github.com/control-center/serviced/volume"
 	dockerclient "github.com/fsouza/go-dockerclient"
 	"github.com/zenoss/glog"
 )
@@ -43,10 +44,11 @@ type Options struct {
 	TLS                  bool
 	KeyPEMFile           string
 	CertPEMFile          string
-	VarPath              string
+	VolumesPath          string
+	IsvcsPath            string
+	BackupsPath          string
 	ResourcePath         string
 	Zookeepers           []string
-	RemoteZookeepers     []string
 	ReportStats          bool
 	HostStats            string
 	StatsPeriod          int
@@ -54,7 +56,7 @@ type Options struct {
 	MCPasswd             string
 	Mount                []string
 	ResourcePeriod       int
-	FSType               string
+	FSType               volume.DriverType
 	ESStartupTimeout     int
 	HostAliases          []string
 	Verbosity            int
@@ -68,11 +70,20 @@ type Options struct {
 	LogstashES           string //logstatsh elasticsearch host:port
 	LogstashMaxDays      int    // Days to keep logstash indices
 	LogstashMaxSize      int    // Max size of logstash data
+	LogstashURL          string
 	DebugPort            int    // Port to listen for profile clients
 	AdminGroup           string // user group that can log in to control center
 	MaxRPCClients        int    // the max number of rpc clients to an endpoint
 	RPCDialTimeout       int
-	SnapshotTTL          int // hours to keep snapshots around, zero for infinity
+	SnapshotTTL          int               // hours to keep snapshots around, zero for infinity
+	StorageArgs          []string          // command-line arguments for storage options
+	StorageOptions       map[string]string // environment arguments for storage options
+	ControllerBinary     string            // Path to the container controller binary
+	StartISVCS           []string          // ISVCS to start when running as an agent
+	IsvcsZKID            int               // Zookeeper server id when running as a quorum
+	IsvcsZKQuorum        []string          // Members of the zookeeper quorum
+	DockerLogDriver      string            // Which log driver to use with containers
+	DockerLogConfig      []string          // List of key=value options for docker logging
 }
 
 // LoadOptions overwrites the existing server options
@@ -89,9 +100,14 @@ func LoadOptions(ops Options) {
 	}
 }
 
-// GetOptionsEndpoint returns the serviced RPC endpoint from options
+// GetOptionsRPCEndpoint returns the serviced RPC endpoint from options
 func GetOptionsRPCEndpoint() string {
 	return options.Endpoint
+}
+
+// SetOptionsRPCEndpoint sets the serviced RPC endpoint in the options
+func SetOptionsRPCEndpoint(endpoint string) {
+	options.Endpoint = endpoint
 }
 
 // GetOptionsRPCPort returns the serviced RPC port from options
@@ -120,7 +136,7 @@ func GetOptionsMaxRPCClients() int {
 }
 
 type api struct {
-	master *master.Client
+	master master.ClientInterface
 	agent  *agent.Client
 	docker *dockerclient.Client
 	dao    dao.ControlPlane // Deprecated
@@ -132,7 +148,7 @@ func New() API {
 }
 
 // New creates a new API type
-func NewAPI(master *master.Client, agent *agent.Client, docker *dockerclient.Client, dao dao.ControlPlane) API {
+func NewAPI(master master.ClientInterface, agent *agent.Client, docker *dockerclient.Client, dao dao.ControlPlane) API {
 	return &api{master: master, agent: agent, docker: docker, dao: dao}
 }
 
@@ -157,7 +173,7 @@ func (a *api) StartServer() error {
 }
 
 // Opens a connection to the master if not already connected
-func (a *api) connectMaster() (*master.Client, error) {
+func (a *api) connectMaster() (master.ClientInterface, error) {
 	if a.master == nil {
 		var err error
 		a.master, err = master.NewClient(options.Endpoint)

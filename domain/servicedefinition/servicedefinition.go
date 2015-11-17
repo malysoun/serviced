@@ -16,7 +16,9 @@ package servicedefinition
 import (
 	"github.com/control-center/serviced/domain"
 	"github.com/control-center/serviced/utils"
+	"github.com/zenoss/glog"
 
+	"encoding/json"
 	"errors"
 	"strings"
 	"time"
@@ -48,7 +50,8 @@ type ServiceDefinition struct {
 	Snapshot          SnapshotCommands              // Snapshot quiesce info for the service: Pause/Resume bash commands
 	RAMCommitment     utils.EngNotation             // expected RAM commitment to use for scheduling
 	CPUCommitment     uint64                        // expected CPU commitment (#cores) to use for scheduling
-	Runs              map[string]string             // Map of commands that can be executed with 'serviced run ...'
+	Runs              map[string]string             // FIXME: This field is deprecated. Remove when possible.
+	Commands          map[string]domain.Command     // Map of commands that can be executed with 'serviced run ...'
 	Actions           map[string]string             // Map of commands that can be executed with 'serviced action ...'
 	HealthChecks      map[string]domain.HealthCheck // HealthChecks for a service.
 	Prereqs           []domain.Prereq               // Optional list of scripts that must be successfully run before kicking off the service command.
@@ -77,6 +80,13 @@ type EndpointDefinition struct {
 	AddressConfig       AddressResourceConfig
 	VHosts              []string // VHost is used to request named vhost for this endpoint. Should be the name of a
 	// subdomain, i.e "myapplication"  not "myapplication.host.com"
+	VHostList []VHost // VHost is used to request named vhost(s) for this endpoint.
+}
+
+// VHost is the configuration for an application endpoint that wants an http VHost endpoint provided by Control Center
+type VHost struct {
+	Name    string // name of the vhost subdomain subdomain, i.e "myapplication"  not "myapplication.host.com
+	Enabled bool   // whether the vhost should be enabled or disabled.
 }
 
 // Task A scheduled task
@@ -90,11 +100,12 @@ type Task struct {
 
 // Volume import defines a file system directory underneath an export directory
 type Volume struct {
-	Owner         string //Resource Path Owner
-	Permission    string //Resource Path permissions, eg what you pass to chmod
-	ResourcePath  string //Resource Pool Path, shared across all hosts in a resource pool
-	ContainerPath string //Container bind-mount path
-	Type          string //Path use, i.e. "dfs" or "tmp"
+	Owner             string //Resource Path Owner
+	Permission        string //Resource Path permissions, eg what you pass to chmod
+	ResourcePath      string //Resource Pool Path, shared across all hosts in a resource pool
+	ContainerPath     string //Container bind-mount path
+	Type              string //Path use, i.e. "dfs" or "tmp"
+	InitContainerPath string //Path to initialize the volume from at creation time, optional
 }
 
 // ConfigFile config file for a service
@@ -131,13 +142,17 @@ type LogTag struct {
 type HostPolicy string
 
 const (
-	//DEFAULT policy for scheduling a service instance
+	// DEFAULT policy for scheduling a service instance
 	DEFAULT HostPolicy = ""
-	//LeastCommitted run on host w/ least committed memory
+	// LeastCommitted run on host w/ least committed resources
 	LeastCommitted = "LEAST_COMMITTED"
-	//PreferSeparate attempt to schedule instances of a service on separate hosts
+	// Balance is a synonym for LeastCommitted
+	Balance = "balance"
+	// Pack runs instance on eligible host with most committed resources
+	Pack = "pack"
+	// PreferSeparate attempt to schedule instances of a service on separate hosts
 	PreferSeparate = "PREFER_SEPARATE"
-	//RequireSeparate schedule instances of a service on separate hosts
+	// RequireSeparate schedule instances of a service on separate hosts
 	RequireSeparate = "REQUIRE_SEPARATE"
 )
 
@@ -151,6 +166,61 @@ func (p *HostPolicy) UnmarshalText(b []byte) error {
 		*p = DEFAULT
 	default:
 		return errors.New("Invalid HostPolicy: " + s)
+	}
+	return nil
+}
+
+type serviceDefinition ServiceDefinition
+
+func (s *ServiceDefinition) UnmarshalJSON(b []byte) error {
+	sd := serviceDefinition{}
+	if err := json.Unmarshal(b, &sd); err == nil {
+		*s = ServiceDefinition(sd)
+	} else {
+		return err
+	}
+	if len(s.Commands) > 0 {
+		s.Runs = nil
+		return nil
+	}
+	if len(s.Runs) > 0 {
+		s.Commands = make(map[string]domain.Command)
+		for k, v := range s.Runs {
+			s.Commands[k] = domain.Command{
+				Command:         v,
+				CommitOnSuccess: true,
+			}
+		}
+		s.Runs = nil
+	}
+	return nil
+}
+
+// private for dealing with unmarshal recursion
+type endpointDefinition EndpointDefinition
+
+// UnmarshalJSON implements the encoding/json/Unmarshaler interface used to convert deprecated vhosts list to VHostList
+func (e *EndpointDefinition) UnmarshalJSON(b []byte) error {
+	epd := endpointDefinition{}
+	if err := json.Unmarshal(b, &epd); err == nil {
+		*e = EndpointDefinition(epd)
+	} else {
+		return err
+	}
+	glog.V(4).Infof("EndpointDefintion UnmarshalJSON %#v", e)
+	if len(e.VHostList) > 0 {
+		//VHostList is defined, keep it and unset deprecated field if set
+		e.VHosts = nil
+		return nil
+	}
+	if len(e.VHosts) > 0 {
+		// no VHostsList but vhosts is defined. Convert to VHostsList
+		glog.Warningf("EndpointDefinition VHosts field is deprecated, see VHostList: %#v", e.VHosts)
+		for _, vhost := range e.VHosts {
+			e.VHostList = append(e.VHostList, VHost{Name: vhost, Enabled: true})
+		}
+		glog.Infof("VHostList %#v converted from VHosts %#v", e.VHostList, e.VHosts)
+		e.VHosts = nil
 	}
 	return nil
 }

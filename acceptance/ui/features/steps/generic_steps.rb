@@ -1,8 +1,5 @@
-Given (/^that the admin user is logged in$/) do
-    visitLoginPage()
-    fillInDefaultUserID()
-    fillInDefaultPassword()
-    clickSignInButton()
+Given (/^(?:|that )the admin user is logged in$/) do
+    loginAsDefaultUser()
 end
 
 When (/^I fill in "([^"]*)" with "([^"]*)"$/) do |element, text|
@@ -14,11 +11,11 @@ When (/^I fill in the "([^"]*)" field with "(.*?)"$/) do |field, text|
     find(field).set(getTableValue(text))
 end
 
-When (/^I click "([^"]*)"$/) do |text|
+When (/^I click (?:|on )"([^"]*)"$/) do |text|
     click_link_or_button(getTableValue(text))
 end
 
-When /^I close the dialog$/ do
+When (/^I close the dialog$/) do
     closeDialog()
 end
 
@@ -29,22 +26,31 @@ When (/^I remove "([^"]*)"$/) do |name|
     end
 end
 
-When(/^I select "(.*?)"$/) do |name|
-    entry = getTableValue(name)
-    within("tr[class='clickable ng-scope']", :text => entry) do
-        page.find("input[type='radio']").click()
-    end
+When (/^I select "(.*?)"$/) do |name|
+    selectOption(name)
 end
 
 When (/^I sort by "([^"]*)" in ([^"]*) order$/) do |category, order|
     sortColumn(category, order)
 end
 
-Then /^I should see "(.*?)"$/ do |text|
+When (/^I view the details (?:for|of) "(.*?)" in the "(.*?)" table$/) do |name, table|
+    viewDetails(name, getTableType(table))
+end
+
+When (/^I hover over the "(.*?)" graph$/) do |graph|
+    hoverOver(graph)
+end
+
+Then (/^I should see "(.*?)"$/) do |text|
     expect(page).to have_content getTableValue(text)
 end
 
-Then /^I should not see "(.*?)"$/ do |text|
+Then (/^I should see "(.*?)" after waiting no more than "(.*?)" seconds$/) do |text, time|
+    expect(page).to have_content(getTableValue(text), wait: time.to_f)
+end
+
+Then (/^I should not see "(.*?)"$/) do |text|
     expect(page).to have_no_content getTableValue(text)
 end
 
@@ -52,12 +58,13 @@ Then (/^I should see the "([^"]*)"$/) do |element|
     find(element).visible?
 end
 
-Then (/^I should see "(.*?)" in the "([^"]*)" column$/) do |text, column|
-    checkColumn(text, column, true)
+Then (/^I should see( the sum of)? "(.*?)" in the "([^"]*)" column$/) do |sum, text, column|
+    text = getSum(text) if sum
+    expect(isInColumn(text, column)).to be true
 end
 
 Then (/^I should not see "(.*?)" in the "([^"]*)" column$/) do |text, column|
-    checkColumn(text, column, false)
+    expect(isNotInColumn(text, column)).to be true
 end
 
 Then (/^the "([^"]*)" column should be sorted in ([^"]*) order$/) do |category, order|
@@ -69,55 +76,149 @@ Then (/^the "([^"]*)" column should be sorted in ([^"]*) order$/) do |category, 
 end
 
 Then (/^I should see an entry for "(.*?)" in the table$/) do |row|
-    checkRows(row, true)
+    expect(isInRows(row)).to be true
 end
 
 Then (/^I should not see an entry for "(.*?)" in the table$/) do |row|
-    checkRows(row, false)
+    expect(isNotInRows(row)).to be true
 end
 
+Then (/^I should see "(.*?)" in the "(.*?)" graph$/) do |text, graph|
+    within(page.find("div[class='zenchartContainer']", :text => graph)) do
+        expect(page).to have_content(getTableValue(text))
+    end
+end
+
+Then (/^I should see "(.*?)" in the hover box$/) do |text|
+    within(page.find("div[class^='nvtooltip']")) do
+        expect(page).to have_content(getTableValue(text))
+    end
+end
+
+Then (/^the details for "(.*?)" should be( the sum of)? "(.*?)"$/) do |header, sum, text|
+    text = getSum(text) if sum
+    expect(checkDetails(text, header)).to be true
+end
+
+Then (/^I should see "(.*?)" in the "(.*?)" table$/) do |text, table|
+    table = getTableType(table)
+    within(page.find("table[data-config='#{table}Table']")) do
+        expect(page).to have_content(getTableValue(text))
+    end
+end
+
+Then (/^I should not see "(.*?)" in the "(.*?)" table$/) do |text, table|
+    table = getTableType(table)
+    within(page.find("table[data-config='#{table}Table']")) do
+        expect(page).to have_no_content(getTableValue(text))
+    end
+end
+
+
+def getTableType(table)
+    type = ""
+    if table == "Applications" || table == "Services"
+        type = "services"
+    elsif table == "Application Templates" || table == "Templates"
+        type = "templates"
+    elsif table == "Hosts"
+        type = "hosts"
+    elsif table == "Resource Pools"
+        type = "pools"
+    end
+    return type
+end
+
+def viewDetails(name, table)
+    name = getTableValue(name)
+    within(page.find("table[data-config='#{table}Table']")) do
+        page.find("[ng-click]", :text => name).click()
+    end
+end
 
 def assertSortedColumn(category, order)
     list = page.all("td[data-title-text='#{category}'][sortable]")
     for i in 0..(list.size - 2)
         if category == "Created" || category == "Last Modified"
             if order
-                DateTime.parse(list[i].text).should <= DateTime.parse(list[i + 1].text)
+                expect(DateTime.parse(list[i].text)).to be <= DateTime.parse(list[i + 1].text)
             else
-                DateTime.parse(list[i].text).should >= DateTime.parse(list[i + 1].text)
+                expect(DateTime.parse(list[i].text)).to be >= DateTime.parse(list[i + 1].text)
+            end
+        elsif category == "Memory"
+            if order
+                expect(list[i].text[0..-4].to_f).to be <= list[i + 1].text[0..-4].to_f
+            else
+                expect(list[i].text[0..-4].to_f).to be >= list[i + 1].text[0..-4].to_f
+            end
+        elsif category == "CPU Cores"
+            if order
+                expect(list[i].text.to_i).to be <= list[i + 1].text.to_i
+            else
+                expect(list[i].text.to_i).to be >= list[i + 1].text.to_i
             end
         else
             if order
             # Category sorting ignores case
-                list[i].text.downcase.should <= list[i + 1].text.downcase
+                expect(list[i].text.downcase).to be <= list[i + 1].text.downcase
             else
-                list[i].text.downcase.should >= list[i + 1].text.downcase
+                expect(list[i].text.downcase).to be >= list[i + 1].text.downcase
             end
         end
     end
 end
 
-def checkRows(row, present)
-    found = false
-    name = getTableValue(row)
-    entries = page.all("tr[ng-repeat$='in $data']")
-    for i in 0..(entries.size - 1)
-        within(entries[i]) do
-            found = true if has_text?(name)
-        end
+def getSum(urls)
+    urlList = urls.split(", ")
+    sum = 0
+    for i in 0..(urlList.size - 1)
+        sum += getTableValue(urlList[i]).to_i
     end
-    found.should == present
+    return sum.to_s
 end
 
-def checkColumn(text, column, present)
+def hoverOver(graph)
+    page.find("div[class='zenchartContainer']", :text => graph).hover()
+end
+
+def isInRows(row)
+    found = false
+    name = getTableValue(row)
+    found = page.has_css?("tr[ng-repeat$='in $data']", :text => name)
+    return found
+end
+
+def isNotInRows(row)
+    notFound = false
+    name = getTableValue(row)
+    notFound = page.has_no_css?("tr[ng-repeat$='in $data']", :text => name)
+    return notFound
+end
+
+def isInColumn(text, column)
     # attribute that includes name of column of all table cells
-    list = page.all("td[data-title-text='#{column}']")
-    cell = getTableValue(text)
     hasEntry = false
-    for i in 0..(list.size - 1)
-        hasEntry = true if list[i].text == cell.to_s
+    cell = getTableValue(text).to_s
+    hasEntry = true if page.has_css?("td[data-title-text='#{column}']", :text => cell)
+    return hasEntry
+end
+
+def isNotInColumn(text, column)
+    # attribute that includes name of column of all table cells
+    hasNoEntry = false
+    cell = getTableValue(text).to_s
+    hasNoEntry = true if page.has_no_css?("td[data-title-text='#{column}']", :text => cell)
+    return hasNoEntry
+end
+
+def checkDetails(detail, header)
+    found = false
+    detail = getTableValue(detail)
+    within(page.find("div[class='vertical-info']", :text => header)) do
+        found = true if page.has_text?(detail)
+        expect(page).to have_content(detail)
     end
-    hasEntry.should == present
+    return found
 end
 
 def closeDialog()
@@ -125,26 +226,51 @@ def closeDialog()
 end
 
 def sortColumn(category, sortOrder)
-    categoryLink = page.find("[class^='header  sortable']", :text => /\A#{category}\z/)
     if sortOrder == "ascending"
         order = 'header  sortable sort-asc'
     else
         order = 'header  sortable sort-desc'
     end
+
     # click until column header shows ascending/descending
+    categoryLink = page.find("[class^='header  sortable']", :text => /\A#{category}\z/)
     while categoryLink[:class] != order do
         categoryLink.click()
+        categoryLink = page.find("[class^='header  sortable']", :text => /\A#{category}\z/)
     end
 end
 
-def removeAllEntries()
-    entries = page.all("[ng-repeat$='in $data']")
-    for i in 0..(entries.size - 1)
-        within(entries[i]) do
+def selectOption(name)
+    entry = getTableValue(name)
+    within("tr[class='clickable ng-scope']", :text => entry) do
+        page.find("input[type='radio']").click()
+    end
+end
+
+def removeEntry(name, category)
+    name = getTableValue(name)
+    within(page.find("tr[ng-repeat='#{category} in $data']", :text => name, match: :first)) do
+        click_link_or_button("Delete")
+    end
+    click_link_or_button("Remove")
+    refreshPage()
+end
+
+def removeAllEntries(category)
+    entry = ""
+    while (page.has_css?("tr[ng-repeat='#{category} in $data']", :text => "Delete")) do
+        within(page.find("tr[ng-repeat='#{category} in $data']", :text => "Delete", match: :first)) do
+            entry = page.text
             click_link_or_button("Delete")
         end
         click_link_or_button("Remove")
+        refreshPage() if category == "service"
+        expect(page).to have_no_content(entry)
     end
+end
+
+def refreshPage()
+    page.driver.browser.navigate.refresh
 end
 
 def getTableValue(valueOrTableUrl)
@@ -165,9 +291,27 @@ def getTableValue(valueOrTableUrl)
         raise(ArgumentError.new('Invalid table name'))
     elsif PARSED_DATA[tableType][tableName][propertyName].nil?
         raise(ArgumentError.new('Invalid property name'))
-    elsif propertyName == "nameAndPort"
-        return HOST_IP + ":" + PARSED_DATA[tableType][tableName]["rpcPort"].to_s
     else
-        return PARSED_DATA[tableType][tableName][propertyName]
+        data = PARSED_DATA[tableType][tableName][propertyName]
+        if data.to_s.include? "%{local_ip}"
+            data.sub! "%{local_ip}", HOST_IP
+        end
+        return data
     end
+end
+
+def getServicedCLI()
+    return "/capybara/serviced --endpoint #{HOST_IP}:4979"
+end
+
+
+def loginAsDefaultUser()
+    visitLoginPage()
+    fillInDefaultUserID()
+    fillInDefaultPassword()
+    clickSignInButton()
+    # login redirects to application page, but
+    # deploy wizard may appears, so automatically
+    # close it
+    closeDeployWizard()
 end

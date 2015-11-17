@@ -102,16 +102,28 @@
                 },
                 show: function(){
                     this.$el.modal("show");
+                    this.disableScroll();
                 },
                 validate: function(){
                     return this.validateFn();
                 },
                 destroy: function(){
                     this.$el.remove();
+                    this.enableScroll();
                 },
                 // convenience method for attaching notifications to the modal
                 createNotification: function(title, message){
                     return $notification.create(title, message, this.$notificationEl);
+                },
+
+                disableScroll(){
+                    var bodyEl = $("body");
+                    this.bodyOverflowProp = bodyEl.css("overflow");
+                    bodyEl.css("overflow", "hidden");
+                },
+                enableScroll(){
+                    var prop = this.bodyOverflowProp || "scroll";
+                    $("body").css("overflow", prop);
                 },
 
                 // convenience method to disable the default ok/submit button
@@ -200,13 +212,14 @@
             }
 
             function _create(template, model, config){
-                var modal = new Modal(template, model, config);
-                modal.show();
-
                 // immediately destroy any existing modals
                 modals.forEach(function(momo){
                     momo.destroy();
                 });
+
+                var modal = new Modal(template, model, config);
+                modal.show();
+
                 modals = [modal];
 
                 // perform onShow function after modal is visible

@@ -19,6 +19,11 @@ DATE := '$(shell date -u)'
 GIT_COMMIT ?= $(shell ./gitstatus.sh)
 GIT_BRANCH ?= $(shell git rev-parse --abbrev-ref HEAD)
 
+GOBUILD_TAGS  ?= $(shell bash build-tags.sh)
+GOBUILD_FLAGS ?= -tags "$(GOBUILD_TAGS)"
+
+
+
 # jenkins default, jenkins-${JOB_NAME}-${BUILD_NUMBER}
 BUILD_TAG ?= 0
 
@@ -52,7 +57,7 @@ INSTALL_TEMPLATES_ONLY = 0
 PKG         = $(default_PKG) # deb | rpm | tgz
 default_PKG = deb
 
-build_TARGETS = build_isvcs build_js serviced
+build_TARGETS = build_isvcs build_js serviced serviced-controller tools
 
 # Define GOPATH for containerized builds.
 #
@@ -118,7 +123,7 @@ build_isvcs:
 
 .PHONY: build_js
 build_js:
-	cd web/ui && make build
+	cd web/ui && make clean build
 
 .PHONY: mockAgent
 mockAgent:
@@ -146,6 +151,8 @@ govet: $(GOSRC)/$(govet_SRC)
 .PHONY: go
 go:
 	$(GO) build $(GOBUILD_FLAGS) ${LDFLAGS}
+	cd serviced-controller && $(GO) build $(GOBUILD_FLAGS) ${LDFLAGS}
+	cd tools/serviced-storage && $(GO) build $(GOBUILD_FLAGS) ${LDFLAGS}
 
 # As a dev convenience, we call both 'go build' and 'go install'
 # so the current directory and $GOPATH/bin are updated
@@ -167,6 +174,19 @@ serviced: FORCE
 	$(GO) build $(GOBUILD_FLAGS) ${LDFLAGS}
 	make govet
 	if [ -n "$(GOBIN)" ]; then cp serviced $(GOBIN)/serviced; fi
+
+serviced-controller: $(GODEP)
+serviced-controller: FORCE
+	cd serviced-controller && $(GO) build $(GOBUILD_FLAGS) ${LDFLAGS}
+	if [ -n "$(GOBIN)" ]; then cp serviced-controller/serviced-controller $(GOBIN)/serviced-controller; fi
+
+
+tools: serviced-storage
+
+serviced-storage: $(GODEP)
+serviced-storage: FORCE
+	cd tools/serviced-storage && $(GO) build $(GOBUILD_FLAGS) ${LDFLAGS}
+	if [ -n "$(GOBIN)" ]; then cp tools/serviced-storage/serviced-storage $(GOBIN)/serviced-storage; fi
 
 #
 # BUILD_VERSION is the version of the serviced-build docker image
@@ -266,6 +286,8 @@ default_INSTCMD = cp
 $(_DESTDIR)$(sysconfdir)/cron.daily_TARGETS        = pkg/cron.daily:serviced
 $(_DESTDIR)$(prefix)/etc_TARGETS                   = pkg/serviced.logrotate:logrotate.conf
 $(_DESTDIR)$(prefix)/bin_TARGETS                   = serviced
+$(_DESTDIR)$(prefix)/bin_TARGETS                  += serviced-controller/serviced-controller:serviced-controller
+$(_DESTDIR)$(prefix)/bin_TARGETS                  += tools/serviced-storage/serviced-storage:serviced-storage
 $(_DESTDIR)$(prefix)/bin_TARGETS                  += pkg/serviced-container-cleanup:serviced-container-cleanup
 $(_DESTDIR)$(prefix)/bin_TARGETS                  += pkg/serviced-container-usage:serviced-container-usage
 $(_DESTDIR)$(prefix)/bin_LINK_TARGETS             += $(prefix)/bin/serviced:$(_DESTDIR)/usr/bin/serviced
@@ -447,8 +469,24 @@ docker_buildandpackage: docker_ok
 #---------------------#
 
 .PHONY: test
-test: build docker_ok
-	./run-tests.sh
+test: unit_test integration_test integration_docker_test integration_dao_test integration_zzk_test js_test
+
+unit_test: build docker_ok
+	./serviced-tests.py --unit --race --packages ./...
+
+integration_test: build docker_ok
+	./serviced-tests.py --integration --quick --race --packages ./...
+
+integration_docker_test: build docker_ok
+	./serviced-tests.py --integration --race --packages ./commons/docker/...
+
+integration_dao_test: build docker_ok
+	./serviced-tests.py --integration --elastic --race --packages ./dao/elasticsearch/...
+
+integration_zzk_test: build docker_ok
+	./serviced-tests.py --integration --race --packages ./zzk/...
+
+js_test: build docker_ok
 	cd web && make "GO=$(GO)" test
 
 smoketest: build docker_ok

@@ -24,12 +24,14 @@ import (
 	"github.com/control-center/serviced/commons"
 	"github.com/control-center/serviced/dao"
 	"github.com/control-center/serviced/domain"
+	"github.com/control-center/serviced/domain/applicationendpoint"
 	"github.com/control-center/serviced/domain/service"
 	"github.com/control-center/serviced/domain/servicedefinition"
 	"github.com/control-center/serviced/domain/servicestate"
 	"github.com/control-center/serviced/metrics"
 
 	"github.com/pivotal-golang/bytefmt"
+	"github.com/control-center/serviced/domain/host"
 )
 
 const ()
@@ -106,13 +108,9 @@ func (a *api) GetServiceStatus(serviceID string) (map[string]map[string]interfac
 	}
 
 	// get hosts
-	hosts, err := a.GetHosts()
+	hostmap, err := a.GetHostMap()
 	if err != nil {
 		return nil, err
-	}
-	hostmap := make(map[string]string)
-	for _, host := range hosts {
-		hostmap[host.ID] = host.Name
 	}
 
 	// get status
@@ -128,7 +126,11 @@ func (a *api) GetServiceStatus(serviceID string) (map[string]map[string]interfac
 			row := make(map[string]interface{})
 			row["ServiceID"] = svc.ID
 			row["Name"] = svc.Name
-			row["ParentID"] = svc.ParentServiceID
+			if svc.ParentServiceID != "" {
+				row["ParentID"] = fmt.Sprintf("%s/%d", svc.ParentServiceID, 0) //make this match the rowmap key
+			} else {
+				row["ParentID"] = ""
+			}
 			row["RAM"] = bytefmt.ByteSize(svc.RAMCommitment.Value)
 
 			if svc.Instances > 0 {
@@ -141,18 +143,31 @@ func (a *api) GetServiceStatus(serviceID string) (map[string]map[string]interfac
 					row["Status"] = dao.Stopped.String()
 				}
 			}
-			rowmap[svc.ID] = row
+			rowmap[fmt.Sprintf("%s/%d", svc.ID, 0)] = row
 		} else {
 			for _, stat := range status {
 				metricReq.Instances = append(metricReq.Instances, metrics.ServiceInstance{svc.ID, stat.State.InstanceID})
 				row := make(map[string]interface{})
 				row["ServiceID"] = svc.ID
-				row["ParentID"] = svc.ParentServiceID
+				if svc.ParentServiceID != "" {
+					row["ParentID"] = fmt.Sprintf("%s/%d", svc.ParentServiceID, 0) //make this match the rowmap key
+				} else {
+					row["ParentID"] = ""
+				}
+
+				//round to uptime to nearest second
+				uptime := stat.State.Uptime()
+				remainder := uptime % time.Second
+				uptime = uptime - remainder
+				if remainder/time.Millisecond >= 500 {
+					uptime += 1 * time.Second
+				}
+
 				row["RAM"] = bytefmt.ByteSize(svc.RAMCommitment.Value)
 				row["Status"] = stat.Status.String()
-				row["Hostname"] = hostmap[stat.State.HostID]
+				row["Hostname"] = hostmap[stat.State.HostID].Name
 				row["DockerID"] = fmt.Sprintf("%.12s", stat.State.DockerID)
-				row["Uptime"] = stat.State.Uptime().String()
+				row["Uptime"] = uptime.String()
 
 				if stat.State.InSync {
 					row["InSync"] = "Y"
@@ -167,6 +182,30 @@ func (a *api) GetServiceStatus(serviceID string) (map[string]map[string]interfac
 				row["Cur/Max/Avg"] = fmt.Sprintf("--")
 
 				rowmap[fmt.Sprintf("%s/%d", svc.ID, stat.State.InstanceID)] = row
+
+				if stat.Status == dao.Running && len(stat.HealthCheckStatuses) > 0 {
+
+					explicitFailure := false
+
+					for hcName, hcResult := range stat.HealthCheckStatuses {
+						newrow := make(map[string]interface{})
+						newrow["ParentID"] = fmt.Sprintf("%s/%d", svc.ID, stat.State.InstanceID) //make this match the rowmap key
+						newrow["Healthcheck"] = hcName
+						newrow["Healthcheck Status"] = hcResult.Status
+
+						if hcResult.Status == "failed" {
+							explicitFailure = true
+						}
+
+						rowmap[fmt.Sprintf("%s/%d-%v", svc.ID, stat.State.InstanceID, hcName)] = newrow
+					}
+
+					//go back and add the healthcheck field for the parent row
+					if explicitFailure {
+						row["HC Fail"] = "X"
+					}
+				}
+
 			}
 		}
 	}
@@ -187,6 +226,22 @@ func (a *api) GetServiceStatus(serviceID string) (map[string]map[string]interfac
 
 	return rowmap, nil
 
+}
+
+// Get all of the exported endpoints
+func (a *api) GetEndpoints(serviceID string, reportImports, reportExports, validate bool) ([]applicationendpoint.EndpointReport, error) {
+	client, err := a.connectMaster()
+	if err != nil {
+		return nil, err
+	}
+
+	serviceIDs := make([]string, 0)
+	serviceIDs = append(serviceIDs, serviceID)
+	if endpoints, err := client.GetServiceEndpoints(serviceIDs, reportImports, reportExports, validate); err != nil {
+		return nil, err
+	} else {
+		return endpoints, nil
+	}
 }
 
 // Gets all of the available services
@@ -421,4 +476,16 @@ func (a *api) AssignIP(config IPConfig) error {
 	}
 
 	return nil
+}
+
+func (a *api) GetHostMap() (map[string]host.Host, error) {
+	hosts, err := a.GetHosts()
+	if err != nil {
+		return nil, err
+	}
+	hostmap := make(map[string]host.Host)
+	for _, host := range hosts {
+		hostmap[host.ID] = host
+	}
+	return hostmap, nil
 }

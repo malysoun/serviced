@@ -21,13 +21,9 @@ package elasticsearch
 import (
 	"fmt"
 	"strconv"
-	"sync"
-	"time"
 
-	"github.com/control-center/serviced/coordinator/storage"
 	"github.com/control-center/serviced/dao"
 	"github.com/control-center/serviced/datastore"
-	"github.com/control-center/serviced/dfs"
 	"github.com/control-center/serviced/domain/service"
 	"github.com/control-center/serviced/facade"
 	"github.com/control-center/serviced/metrics"
@@ -45,17 +41,12 @@ const (
 var _ dao.ControlPlane = &ControlPlaneDao{}
 
 type ControlPlaneDao struct {
-	hostName       string
-	port           int
-	rpcPort        int
-	varpath        string
-	fsType         string
-	dfs            *dfs.DistributedFilesystem
-	facade         *facade.Facade
-	dockerRegistry string
-	metricClient   *metrics.Client
-	backupLock     sync.RWMutex
-	restoreLock    sync.RWMutex
+	hostName     string
+	port         int
+	rpcPort      int
+	facade       *facade.Facade
+	metricClient *metrics.Client
+	backupsPath  string
 }
 
 func serviceGetter(ctx datastore.Context, f *facade.Facade) service.GetService {
@@ -132,7 +123,7 @@ func NewControlPlaneDao(hostName string, port int, rpcPort int) (*ControlPlaneDa
 	return dao, nil
 }
 
-func NewControlSvc(hostName string, port int, facade *facade.Facade, varpath, fsType string, rpcPort int, maxdfstimeout time.Duration, dockerRegistry string, networkDriver storage.StorageDriver) (*ControlPlaneDao, error) {
+func NewControlSvc(hostName string, port int, facade *facade.Facade, backupsPath string, rpcPort int) (*ControlPlaneDao, error) {
 	glog.V(2).Info("calling NewControlSvc()")
 	defer glog.V(2).Info("leaving NewControlSvc()")
 
@@ -140,23 +131,15 @@ func NewControlSvc(hostName string, port int, facade *facade.Facade, varpath, fs
 	if err != nil {
 		return nil, err
 	}
+	s.backupsPath = backupsPath
 
 	//Used to bridge old to new
 	s.facade = facade
-
-	s.varpath = varpath
-	s.fsType = fsType
 
 	// create the account credentials
 	if err = createSystemUser(s); err != nil {
 		return nil, err
 	}
-
-	dfs, err := dfs.NewDistributedFilesystem(fsType, varpath, dockerRegistry, facade, maxdfstimeout, networkDriver)
-	if err != nil {
-		return nil, err
-	}
-	s.dfs = dfs
 
 	// initialize the metrics client
 	metricClient, err := metrics.NewClient(fmt.Sprintf("http://%s:8888", hostName))

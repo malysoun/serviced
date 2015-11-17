@@ -15,10 +15,7 @@ package zookeeper
 
 import (
 	"encoding/json"
-	"log"
-	"os/exec"
 	lpath "path"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -122,36 +119,57 @@ func (c *Connection) CreateEphemeral(path string, node client.Node) (string, err
 	return path, xlateError(err)
 }
 
+// Create a Transaction object.
+func (c *Connection) NewTransaction() client.Transaction {
+	return &Transaction{
+		conn: c,
+		ops:  []transactionOperation{},
+	}
+}
+
 // Create places data at the node at the given path.
 func (c *Connection) Create(path string, node client.Node) error {
 	if c.conn == nil {
 		return client.ErrConnectionClosed
 	}
-
 	p := join(c.basePath, path)
-
 	bytes, err := json.Marshal(node)
 	if err != nil {
 		return client.ErrSerialization
 	}
+	if err := c.EnsurePath(path); err != nil {
+		return xlateError(err)
+	}
+	if _, err = c.conn.Create(p, bytes, 0, zklib.WorldACL(zklib.PermAll)); err != nil {
+		return xlateError(err)
+	}
+	node.SetVersion(&zklib.Stat{})
+	return nil
+}
 
-	_, err = c.conn.Create(p, bytes, 0, zklib.WorldACL(zklib.PermAll))
-	if err == zklib.ErrNoNode {
-		// Create parent node.
-		parts := strings.Split(p, "/")
-		pth := ""
-		for _, p := range parts[1:] {
-			pth += "/" + p
-			_, err = c.conn.Create(pth, []byte{}, 0, zklib.WorldACL(zklib.PermAll))
-			if err != nil && err != zklib.ErrNodeExists {
-				return xlateError(err)
-			}
+// Creates the path up to and including the immediate parent of the
+// target node.
+func (c *Connection) EnsurePath(path string) error {
+	path = join(c.basePath, path)
+	split := strings.Split(path, "/")
+	final := strings.Join(split[:len(split)-1], "/")
+	exists, err := c.Exists(final)
+	if err != nil {
+		glog.Errorf("Error testing existence of node %s: %s", final, err)
+		return xlateError(err)
+	}
+	if exists {
+		return nil
+	}
+	_path := ""
+	for _, n := range split[1 : len(split)-1] {
+		_path += "/" + n
+		_, err = c.conn.Create(_path, []byte{}, 0, zklib.WorldACL(zklib.PermAll))
+		if err != nil && err != zklib.ErrNodeExists {
+			return xlateError(err)
 		}
 	}
-	if err == nil {
-		node.SetVersion(&zklib.Stat{})
-	}
-	return xlateError(err)
+	return nil
 }
 
 type dirNode struct {
@@ -213,7 +231,7 @@ func toClientEvent(zkEvent <-chan zklib.Event) <-chan client.Event {
 	return echan
 }
 
-// ChildrenW returns the children of the node at the give path and a channel of
+// ChildrenW returns the children of the node at the given path and a channel of
 // events that will yield the next event at that node.
 func (c *Connection) ChildrenW(path string) (children []string, event <-chan client.Event, err error) {
 	if c.conn == nil {
@@ -226,7 +244,7 @@ func (c *Connection) ChildrenW(path string) (children []string, event <-chan cli
 	return children, toClientEvent(zkEvent), xlateError(err)
 }
 
-// GetW gets the node at the given path and return a channel to watch for events on that node.
+// GetW gets the node at the given path and returns a channel to watch for events on that node.
 func (c *Connection) GetW(path string, node client.Node) (event <-chan client.Event, err error) {
 	if c.conn == nil {
 		return nil, client.ErrConnectionClosed
@@ -305,44 +323,4 @@ func (c *Connection) Set(path string, node client.Node) error {
 	}
 	_, err = c.conn.Set(join(c.basePath, path), data, stat.Version)
 	return xlateError(err)
-}
-
-// EnsureZkFatjar downloads the zookeeper binaries for use in unit tests
-func EnsureZkFatjar() {
-	_, err := exec.LookPath("java")
-	if err != nil {
-		log.Fatal("Can't find java in path")
-	}
-
-	jars, err := filepath.Glob("zookeeper-*/contrib/fatjar/zookeeper-*-fatjar.jar")
-	if err != nil {
-		log.Fatal("Error search for files")
-	}
-	if len(jars) > 0 {
-		return
-	}
-
-	err = exec.Command("curl", "-O", "http://www.java2s.com/Code/JarDownload/zookeeper/zookeeper-3.3.3-fatjar.jar.zip").Run()
-	if err != nil {
-		log.Fatalf("Could not download fatjar: %s", err)
-	}
-
-	err = exec.Command("unzip", "zookeeper-3.3.3-fatjar.jar.zip").Run()
-	if err != nil {
-		log.Fatalf("Could not unzip fatjar: %s", err)
-	}
-	err = exec.Command("mkdir", "-p", "zookeeper-3.3.3/contrib/fatjar").Run()
-	if err != nil {
-		log.Fatalf("Could not make fatjar dir: %s", err)
-	}
-
-	err = exec.Command("mv", "zookeeper-3.3.3-fatjar.jar", "zookeeper-3.3.3/contrib/fatjar/").Run()
-	if err != nil {
-		log.Fatalf("Could not mv fatjar: %s", err)
-	}
-
-	err = exec.Command("rm", "zookeeper-3.3.3-fatjar.jar.zip").Run()
-	if err != nil {
-		log.Fatalf("Could not rm fatjar.zip: %s", err)
-	}
 }

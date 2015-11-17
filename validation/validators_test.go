@@ -11,6 +11,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// +build unit
+
 package validation
 
 import (
@@ -88,4 +90,15 @@ func (vs *ValidationSuite) Test_IsValidHostID(c *C) {
 			c.Fatalf("Unexpected non-error validating invalid hostid %s: %v", hostID, err)
 		}
 	}
+}
+
+func (vs *ValidationSuite) Test_ExcludeString(c *C) {
+	err := ExcludeChars("field", "team", "i")
+	c.Assert(err, IsNil)
+	err = ExcludeChars("field", "failure", "u & i")
+	c.Assert(err, NotNil)
+	err = ExcludeChars("field", "foo", "")
+	c.Assert(err, IsNil)
+	err = ExcludeChars("field", "", "")
+	c.Assert(err, IsNil)
 }

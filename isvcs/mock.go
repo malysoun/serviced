@@ -14,10 +14,11 @@
 package isvcs
 
 import (
+	"time"
+
 	. "github.com/control-center/serviced/dao"
 	"github.com/control-center/serviced/domain"
 	. "github.com/control-center/serviced/domain/service"
-	"time"
 )
 
 var zero int = 0
@@ -66,6 +67,7 @@ func init() {
 		MonitoringProfile: domain.MonitorProfile{
 			GraphConfigs: []domain.GraphConfig{
 				domain.GraphConfig{
+					ID:     "cpuUsage",
 					Name:   "CPU Usage",
 					Footer: false,
 					Format: "%4.2f",
@@ -116,6 +118,7 @@ func init() {
 					},
 				},
 				domain.GraphConfig{
+					ID:     "memoryUsage",
 					Name:   "Memory Usage",
 					Footer: false,
 					Format: "%4.2f",
@@ -188,6 +191,7 @@ func init() {
 			},
 			GraphConfigs: []domain.GraphConfig{
 				domain.GraphConfig{
+					ID:     "cpuUsage",
 					Name:   "CPU Usage",
 					Footer: false,
 					Format: "%4.2f",
@@ -204,14 +208,15 @@ func init() {
 					Units:      "Percent",
 					DataPoints: []domain.DataPoint{
 						domain.DataPoint{
-							ID:         "system",
-							Aggregator: "avg",
-							Fill:       false,
-							Format:     "%4.2f",
-							Legend:     "CPU (System)",
-							Metric:     "cgroup.cpuacct.system",
-							Name:       "CPU (System)",
-							Rate:       true,
+							ID:           "system",
+							MetricSource: "metrics",
+							Aggregator:   "avg",
+							Fill:         false,
+							Format:       "%4.2f",
+							Legend:       "CPU (System)",
+							Metric:       "cgroup.cpuacct.system",
+							Name:         "CPU (System)",
+							Rate:         true,
 							RateOptions: &domain.DataPointRateOptions{
 								Counter: true,
 								// supress extreme outliers
@@ -220,14 +225,15 @@ func init() {
 							Type: "area",
 						},
 						domain.DataPoint{
-							ID:         "system",
-							Aggregator: "avg",
-							Fill:       false,
-							Format:     "%4.2f",
-							Legend:     "CPU (User)",
-							Metric:     "cgroup.cpuacct.user",
-							Name:       "CPU (User)",
-							Rate:       true,
+							ID:           "system",
+							MetricSource: "metrics",
+							Aggregator:   "avg",
+							Fill:         false,
+							Format:       "%4.2f",
+							Legend:       "CPU (User)",
+							Metric:       "cgroup.cpuacct.user",
+							Name:         "CPU (User)",
+							Rate:         true,
 							RateOptions: &domain.DataPointRateOptions{
 								Counter: true,
 								// supress extreme outliers
@@ -238,6 +244,7 @@ func init() {
 					},
 				},
 				domain.GraphConfig{
+					ID:     "memoryUsage",
 					Name:   "Memory Usage",
 					Footer: false,
 					Format: "%4.2f",
@@ -255,15 +262,16 @@ func init() {
 					Base:       1024,
 					DataPoints: []domain.DataPoint{
 						domain.DataPoint{
-							ID:         "rssmemory",
-							Aggregator: "avg",
-							Fill:       false,
-							Format:     "%4.2f",
-							Legend:     "Memory Usage",
-							Metric:     "cgroup.memory.totalrss",
-							Name:       "Memory Usage",
-							Rate:       false,
-							Type:       "area",
+							ID:           "rssmemory",
+							MetricSource: "metrics",
+							Aggregator:   "avg",
+							Fill:         false,
+							Format:       "%4.2f",
+							Legend:       "Memory Usage",
+							Metric:       "cgroup.memory.totalrss",
+							Name:         "Memory Usage",
+							Rate:         false,
+							Type:         "area",
 						},
 					},
 				},
@@ -294,6 +302,7 @@ func init() {
 			},
 			GraphConfigs: []domain.GraphConfig{
 				domain.GraphConfig{
+					ID:     "cpuUsage",
 					Name:   "CPU Usage",
 					Footer: false,
 					Format: "%4.2f",
@@ -310,14 +319,15 @@ func init() {
 					Units:      "Percent",
 					DataPoints: []domain.DataPoint{
 						domain.DataPoint{
-							ID:         "system",
-							Aggregator: "avg",
-							Fill:       false,
-							Format:     "%4.2f",
-							Legend:     "CPU (System)",
-							Metric:     "cgroup.cpuacct.system",
-							Name:       "CPU (System)",
-							Rate:       true,
+							ID:           "system",
+							MetricSource: "metrics",
+							Aggregator:   "avg",
+							Fill:         false,
+							Format:       "%4.2f",
+							Legend:       "CPU (System)",
+							Metric:       "cgroup.cpuacct.system",
+							Name:         "CPU (System)",
+							Rate:         true,
 							RateOptions: &domain.DataPointRateOptions{
 								Counter: true,
 								// supress extreme outliers
@@ -326,14 +336,15 @@ func init() {
 							Type: "area",
 						},
 						domain.DataPoint{
-							ID:         "system",
-							Aggregator: "avg",
-							Fill:       false,
-							Format:     "%4.2f",
-							Legend:     "CPU (User)",
-							Metric:     "cgroup.cpuacct.user",
-							Name:       "CPU (User)",
-							Rate:       true,
+							ID:           "system",
+							MetricSource: "metrics",
+							Aggregator:   "avg",
+							Fill:         false,
+							Format:       "%4.2f",
+							Legend:       "CPU (User)",
+							Metric:       "cgroup.cpuacct.user",
+							Name:         "CPU (User)",
+							Rate:         true,
 							RateOptions: &domain.DataPointRateOptions{
 								Counter: true,
 								// supress extreme outliers
@@ -344,6 +355,7 @@ func init() {
 					},
 				},
 				domain.GraphConfig{
+					ID:     "memoryUsage",
 					Name:   "Memory Usage",
 					Footer: false,
 					Format: "%4.2f",
@@ -361,15 +373,16 @@ func init() {
 					Base:       1024,
 					DataPoints: []domain.DataPoint{
 						domain.DataPoint{
-							ID:         "rssmemory",
-							Aggregator: "avg",
-							Fill:       false,
-							Format:     "%4.2f",
-							Legend:     "Memory Usage",
-							Metric:     "cgroup.memory.totalrss",
-							Name:       "Memory Usage",
-							Rate:       false,
-							Type:       "area",
+							ID:           "rssmemory",
+							MetricSource: "metrics",
+							Aggregator:   "avg",
+							Fill:         false,
+							Format:       "%4.2f",
+							Legend:       "Memory Usage",
+							Metric:       "cgroup.memory.totalrss",
+							Name:         "Memory Usage",
+							Rate:         false,
+							Type:         "area",
 						},
 					},
 				},
@@ -415,6 +428,7 @@ func init() {
 			},
 			GraphConfigs: []domain.GraphConfig{
 				domain.GraphConfig{
+					ID:     "cpuUsage",
 					Name:   "CPU Usage",
 					Footer: false,
 					Format: "%4.2f",
@@ -431,14 +445,15 @@ func init() {
 					Units:      "Percent",
 					DataPoints: []domain.DataPoint{
 						domain.DataPoint{
-							ID:         "system",
-							Aggregator: "avg",
-							Fill:       false,
-							Format:     "%4.2f",
-							Legend:     "CPU (System)",
-							Metric:     "cgroup.cpuacct.system",
-							Name:       "CPU (System)",
-							Rate:       true,
+							ID:           "system",
+							MetricSource: "cpu",
+							Aggregator:   "avg",
+							Fill:         false,
+							Format:       "%4.2f",
+							Legend:       "CPU (System)",
+							Metric:       "cgroup.cpuacct.system",
+							Name:         "CPU (System)",
+							Rate:         true,
 							RateOptions: &domain.DataPointRateOptions{
 								Counter: true,
 								// supress extreme outliers
@@ -447,14 +462,15 @@ func init() {
 							Type: "area",
 						},
 						domain.DataPoint{
-							ID:         "system",
-							Aggregator: "avg",
-							Fill:       false,
-							Format:     "%4.2f",
-							Legend:     "CPU (User)",
-							Metric:     "cgroup.cpuacct.user",
-							Name:       "CPU (User)",
-							Rate:       true,
+							ID:           "system",
+							MetricSource: "cpu",
+							Aggregator:   "avg",
+							Fill:         false,
+							Format:       "%4.2f",
+							Legend:       "CPU (User)",
+							Metric:       "cgroup.cpuacct.user",
+							Name:         "CPU (User)",
+							Rate:         true,
 							RateOptions: &domain.DataPointRateOptions{
 								Counter: true,
 								// supress extreme outliers
@@ -465,6 +481,7 @@ func init() {
 					},
 				},
 				domain.GraphConfig{
+					ID:     "memoryUsage",
 					Name:   "Memory Usage",
 					Footer: false,
 					Format: "%4.2f",
@@ -482,15 +499,16 @@ func init() {
 					Base:       1024,
 					DataPoints: []domain.DataPoint{
 						domain.DataPoint{
-							ID:         "rssmemory",
-							Aggregator: "avg",
-							Fill:       false,
-							Format:     "%4.2f",
-							Legend:     "Memory Usage",
-							Metric:     "cgroup.memory.totalrss",
-							Name:       "Memory Usage",
-							Rate:       false,
-							Type:       "area",
+							ID:           "rssmemory",
+							MetricSource: "memory",
+							Aggregator:   "avg",
+							Fill:         false,
+							Format:       "%4.2f",
+							Legend:       "Memory Usage",
+							Metric:       "cgroup.memory.totalrss",
+							Name:         "Memory Usage",
+							Rate:         false,
+							Type:         "area",
 						},
 					},
 				},
@@ -536,6 +554,7 @@ func init() {
 			},
 			GraphConfigs: []domain.GraphConfig{
 				domain.GraphConfig{
+					ID:     "cpuUsage",
 					Name:   "CPU Usage",
 					Footer: false,
 					Format: "%4.2f",
@@ -552,14 +571,15 @@ func init() {
 					Units:      "Percent",
 					DataPoints: []domain.DataPoint{
 						domain.DataPoint{
-							ID:         "system",
-							Aggregator: "avg",
-							Fill:       false,
-							Format:     "%4.2f",
-							Legend:     "CPU (System)",
-							Metric:     "cgroup.cpuacct.system",
-							Name:       "CPU (System)",
-							Rate:       true,
+							ID:           "system",
+							MetricSource: "cpu",
+							Aggregator:   "avg",
+							Fill:         false,
+							Format:       "%4.2f",
+							Legend:       "CPU (System)",
+							Metric:       "cgroup.cpuacct.system",
+							Name:         "CPU (System)",
+							Rate:         true,
 							RateOptions: &domain.DataPointRateOptions{
 								Counter: true,
 								// supress extreme outliers
@@ -568,14 +588,15 @@ func init() {
 							Type: "area",
 						},
 						domain.DataPoint{
-							ID:         "system",
-							Aggregator: "avg",
-							Fill:       false,
-							Format:     "%4.2f",
-							Legend:     "CPU (User)",
-							Metric:     "cgroup.cpuacct.user",
-							Name:       "CPU (User)",
-							Rate:       true,
+							ID:           "system",
+							MetricSource: "cpu",
+							Aggregator:   "avg",
+							Fill:         false,
+							Format:       "%4.2f",
+							Legend:       "CPU (User)",
+							Metric:       "cgroup.cpuacct.user",
+							Name:         "CPU (User)",
+							Rate:         true,
 							RateOptions: &domain.DataPointRateOptions{
 								Counter: true,
 								// supress extreme outliers
@@ -586,6 +607,7 @@ func init() {
 					},
 				},
 				domain.GraphConfig{
+					ID:     "memoryUsage",
 					Name:   "Memory Usage",
 					Footer: false,
 					Format: "%4.2f",
@@ -603,15 +625,16 @@ func init() {
 					Base:       1024,
 					DataPoints: []domain.DataPoint{
 						domain.DataPoint{
-							ID:         "rssmemory",
-							Aggregator: "avg",
-							Fill:       false,
-							Format:     "%4.2f",
-							Legend:     "Memory Usage",
-							Metric:     "cgroup.memory.totalrss",
-							Name:       "Memory Usage",
-							Rate:       false,
-							Type:       "area",
+							ID:           "rssmemory",
+							MetricSource: "memory",
+							Aggregator:   "avg",
+							Fill:         false,
+							Format:       "%4.2f",
+							Legend:       "Memory Usage",
+							Metric:       "cgroup.memory.totalrss",
+							Name:         "Memory Usage",
+							Rate:         false,
+							Type:         "area",
 						},
 					},
 				},
@@ -657,6 +680,7 @@ func init() {
 			},
 			GraphConfigs: []domain.GraphConfig{
 				domain.GraphConfig{
+					ID:     "cpuUsage",
 					Name:   "CPU Usage",
 					Footer: false,
 					Format: "%4.2f",
@@ -673,14 +697,15 @@ func init() {
 					Units:      "Percent",
 					DataPoints: []domain.DataPoint{
 						domain.DataPoint{
-							ID:         "system",
-							Aggregator: "avg",
-							Fill:       false,
-							Format:     "%4.2f",
-							Legend:     "CPU (System)",
-							Metric:     "cgroup.cpuacct.system",
-							Name:       "CPU (System)",
-							Rate:       true,
+							ID:           "system",
+							MetricSource: "cpu",
+							Aggregator:   "avg",
+							Fill:         false,
+							Format:       "%4.2f",
+							Legend:       "CPU (System)",
+							Metric:       "cgroup.cpuacct.system",
+							Name:         "CPU (System)",
+							Rate:         true,
 							RateOptions: &domain.DataPointRateOptions{
 								Counter: true,
 								// supress extreme outliers
@@ -689,14 +714,15 @@ func init() {
 							Type: "area",
 						},
 						domain.DataPoint{
-							ID:         "system",
-							Aggregator: "avg",
-							Fill:       false,
-							Format:     "%4.2f",
-							Legend:     "CPU (User)",
-							Metric:     "cgroup.cpuacct.user",
-							Name:       "CPU (User)",
-							Rate:       true,
+							ID:           "system",
+							MetricSource: "cpu",
+							Aggregator:   "avg",
+							Fill:         false,
+							Format:       "%4.2f",
+							Legend:       "CPU (User)",
+							Metric:       "cgroup.cpuacct.user",
+							Name:         "CPU (User)",
+							Rate:         true,
 							RateOptions: &domain.DataPointRateOptions{
 								Counter: true,
 								// supress extreme outliers
@@ -707,6 +733,7 @@ func init() {
 					},
 				},
 				domain.GraphConfig{
+					ID:     "memoryUsage",
 					Name:   "Memory Usage",
 					Footer: false,
 					Format: "%4.2f",
@@ -724,15 +751,16 @@ func init() {
 					Base:       1024,
 					DataPoints: []domain.DataPoint{
 						domain.DataPoint{
-							ID:         "rssmemory",
-							Aggregator: "avg",
-							Fill:       false,
-							Format:     "%4.2f",
-							Legend:     "Memory Usage",
-							Metric:     "cgroup.memory.totalrss",
-							Name:       "Memory Usage",
-							Rate:       false,
-							Type:       "area",
+							ID:           "rssmemory",
+							MetricSource: "memory",
+							Aggregator:   "avg",
+							Fill:         false,
+							Format:       "%4.2f",
+							Legend:       "Memory Usage",
+							Metric:       "cgroup.memory.totalrss",
+							Name:         "Memory Usage",
+							Rate:         false,
+							Type:         "area",
 						},
 					},
 				},
@@ -778,6 +806,7 @@ func init() {
 			},
 			GraphConfigs: []domain.GraphConfig{
 				domain.GraphConfig{
+					ID:     "cpuUsage",
 					Name:   "CPU Usage",
 					Footer: false,
 					Format: "%4.2f",
@@ -794,14 +823,15 @@ func init() {
 					Units:      "Percent",
 					DataPoints: []domain.DataPoint{
 						domain.DataPoint{
-							ID:         "system",
-							Aggregator: "avg",
-							Fill:       false,
-							Format:     "%4.2f",
-							Legend:     "CPU (System)",
-							Metric:     "cgroup.cpuacct.system",
-							Name:       "CPU (System)",
-							Rate:       true,
+							ID:           "system",
+							MetricSource: "cpu",
+							Aggregator:   "avg",
+							Fill:         false,
+							Format:       "%4.2f",
+							Legend:       "CPU (System)",
+							Metric:       "cgroup.cpuacct.system",
+							Name:         "CPU (System)",
+							Rate:         true,
 							RateOptions: &domain.DataPointRateOptions{
 								Counter: true,
 								// supress extreme outliers
@@ -810,14 +840,15 @@ func init() {
 							Type: "area",
 						},
 						domain.DataPoint{
-							ID:         "system",
-							Aggregator: "avg",
-							Fill:       false,
-							Format:     "%4.2f",
-							Legend:     "CPU (User)",
-							Metric:     "cgroup.cpuacct.user",
-							Name:       "CPU (User)",
-							Rate:       true,
+							ID:           "system",
+							MetricSource: "cpu",
+							Aggregator:   "avg",
+							Fill:         false,
+							Format:       "%4.2f",
+							Legend:       "CPU (User)",
+							Metric:       "cgroup.cpuacct.user",
+							Name:         "CPU (User)",
+							Rate:         true,
 							RateOptions: &domain.DataPointRateOptions{
 								Counter: true,
 								// supress extreme outliers
@@ -828,6 +859,7 @@ func init() {
 					},
 				},
 				domain.GraphConfig{
+					ID:     "memoryUsage",
 					Name:   "Memory Usage",
 					Footer: false,
 					Format: "%4.2f",
@@ -845,15 +877,16 @@ func init() {
 					Base:       1024,
 					DataPoints: []domain.DataPoint{
 						domain.DataPoint{
-							ID:         "rssmemory",
-							Aggregator: "avg",
-							Fill:       false,
-							Format:     "%4.2f",
-							Legend:     "Memory Usage",
-							Metric:     "cgroup.memory.totalrss",
-							Name:       "Memory Usage",
-							Rate:       false,
-							Type:       "area",
+							ID:           "rssmemory",
+							MetricSource: "memory",
+							Aggregator:   "avg",
+							Fill:         false,
+							Format:       "%4.2f",
+							Legend:       "Memory Usage",
+							Metric:       "cgroup.memory.totalrss",
+							Name:         "Memory Usage",
+							Rate:         false,
+							Type:         "area",
 						},
 					},
 				},
@@ -863,14 +896,14 @@ func init() {
 	DockerRegistryIRS = RunningService{
 		Name:         "Docker Registry",
 		Description:  "Internal Docker Registry",
-		ID:           "isvc-dockerRegistry",
-		ServiceID:    "isvc-dockerRegistry",
+		ID:           "isvc-docker-registry",
+		ServiceID:    "isvc-docker-registry",
 		DesiredState: 1,
 		StartedAt:    time.Now(),
 	}
 	DockerRegistryISVC = Service{
 		Name:            "Docker Registry",
-		ID:              "isvc-dockerRegistry",
+		ID:              "isvc-docker-registry",
 		Startup:         "DOCKER_REGISTRY_CONFIG=/docker-registry/config/config_sample.yml SETTINGS_FLAVOR=serviced docker-registry",
 		Description:     "Internal Docker Registry",
 		ParentServiceID: "isvc-internalservices",
@@ -899,6 +932,7 @@ func init() {
 			},
 			GraphConfigs: []domain.GraphConfig{
 				domain.GraphConfig{
+					ID:     "cpuUsage",
 					Name:   "CPU Usage",
 					Footer: false,
 					Format: "%4.2f",
@@ -915,14 +949,15 @@ func init() {
 					Units:      "Percent",
 					DataPoints: []domain.DataPoint{
 						domain.DataPoint{
-							ID:         "system",
-							Aggregator: "avg",
-							Fill:       false,
-							Format:     "%4.2f",
-							Legend:     "CPU (System)",
-							Metric:     "cgroup.cpuacct.system",
-							Name:       "CPU (System)",
-							Rate:       true,
+							ID:           "system",
+							MetricSource: "cpu",
+							Aggregator:   "avg",
+							Fill:         false,
+							Format:       "%4.2f",
+							Legend:       "CPU (System)",
+							Metric:       "cgroup.cpuacct.system",
+							Name:         "CPU (System)",
+							Rate:         true,
 							RateOptions: &domain.DataPointRateOptions{
 								Counter: true,
 								// supress extreme outliers
@@ -931,14 +966,15 @@ func init() {
 							Type: "area",
 						},
 						domain.DataPoint{
-							ID:         "system",
-							Aggregator: "avg",
-							Fill:       false,
-							Format:     "%4.2f",
-							Legend:     "CPU (User)",
-							Metric:     "cgroup.cpuacct.user",
-							Name:       "CPU (User)",
-							Rate:       true,
+							ID:           "system",
+							MetricSource: "cpu",
+							Aggregator:   "avg",
+							Fill:         false,
+							Format:       "%4.2f",
+							Legend:       "CPU (User)",
+							Metric:       "cgroup.cpuacct.user",
+							Name:         "CPU (User)",
+							Rate:         true,
 							RateOptions: &domain.DataPointRateOptions{
 								Counter: true,
 								// supress extreme outliers
@@ -949,6 +985,7 @@ func init() {
 					},
 				},
 				domain.GraphConfig{
+					ID:     "memoryUsage",
 					Name:   "Memory Usage",
 					Footer: false,
 					Format: "%4.2f",
@@ -966,15 +1003,16 @@ func init() {
 					Base:       1024,
 					DataPoints: []domain.DataPoint{
 						domain.DataPoint{
-							ID:         "rssmemory",
-							Aggregator: "avg",
-							Fill:       false,
-							Format:     "%4.2f",
-							Legend:     "Memory Usage",
-							Metric:     "cgroup.memory.totalrss",
-							Name:       "Memory Usage",
-							Rate:       false,
-							Type:       "area",
+							ID:           "rssmemory",
+							MetricSource: "memory",
+							Aggregator:   "avg",
+							Fill:         false,
+							Format:       "%4.2f",
+							Legend:       "Memory Usage",
+							Metric:       "cgroup.memory.totalrss",
+							Name:         "Memory Usage",
+							Rate:         false,
+							Type:         "area",
 						},
 					},
 				},
@@ -990,7 +1028,7 @@ func init() {
 		"isvc-logstash":               &LogstashISVC,
 		"isvc-opentsdb":               &OpentsdbISVC,
 		"isvc-celery":                 &CeleryISVC,
-		"isvc-dockerRegistry":         &DockerRegistryISVC,
+		"isvc-docker-registry":        &DockerRegistryISVC,
 	}
 
 	IRSMap = map[string]*RunningService{
@@ -1001,7 +1039,13 @@ func init() {
 		"isvc-logstash":               &LogstashIRS,
 		"isvc-opentsdb":               &OpentsdbIRS,
 		"isvc-celery":                 &CeleryIRS,
-		"isvc-dockerRegistry":         &DockerRegistryIRS,
+		"isvc-docker-registry":        &DockerRegistryIRS,
 	}
+	initZK()
+	initOTSDB()
+	initLogstash()
+	initElasticSearch()
+	initCelery()
+	initDockerRegistry()
 
 }

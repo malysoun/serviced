@@ -19,9 +19,12 @@ import (
 	"github.com/control-center/serviced/dao"
 )
 
-const ()
-
-var ()
+type SnapshotConfig struct {
+	ServiceID string
+	Message   string
+	Tag       string
+	DockerID  string
+}
 
 // Lists all snapshots on the DFS
 func (a *api) GetSnapshots() ([]dao.SnapshotInfo, error) {
@@ -59,15 +62,39 @@ func (a *api) GetSnapshotsByServiceID(serviceID string) ([]dao.SnapshotInfo, err
 	return snapshots, nil
 }
 
-// Snapshots a service
-func (a *api) AddSnapshot(serviceID string, description string) (string, error) {
+// Get the ID of the snapshot for serviceID that has the given tag
+func (a *api) GetSnapshotByServiceIDAndTag(serviceID string, tag string) (string, error) {
 	client, err := a.connectDAO()
 	if err != nil {
 		return "", err
 	}
+	req := dao.SnapshotByTagRequest{
+		ServiceID: serviceID,
+		TagName:   tag,
+	}
 
+	var snapshot string
+	if err := client.GetSnapshotByServiceIDAndTag(req, &snapshot); err != nil {
+		return "", err
+	}
+
+	return snapshot, nil
+}
+
+// Snapshots a service
+func (a *api) AddSnapshot(cfg SnapshotConfig) (string, error) {
+	client, err := a.connectDAO()
+	if err != nil {
+		return "", err
+	}
+	req := dao.SnapshotRequest{
+		ServiceID:   cfg.ServiceID,
+		Message:     cfg.Message,
+		Tag:         cfg.Tag,
+		ContainerID: cfg.DockerID,
+	}
 	var snapshotID string
-	if err := client.Snapshot(dao.SnapshotRequest{serviceID, description}, &snapshotID); err != nil {
+	if err := client.Snapshot(req, &snapshotID); err != nil {
 		return "", err
 	}
 
@@ -88,21 +115,6 @@ func (a *api) RemoveSnapshot(snapshotID string) error {
 	return nil
 }
 
-// Commit creates a snapshot and commits it as the service's image
-func (a *api) Commit(dockerID string) (string, error) {
-	client, err := a.connectDAO()
-	if err != nil {
-		return "", err
-	}
-
-	var snapshotID string
-	if err := client.Commit(dockerID, &snapshotID); err != nil {
-		return "", err
-	}
-
-	return snapshotID, nil
-}
-
 // Rollback rolls back the system to the state of the given snapshot
 func (a *api) Rollback(snapshotID string, forceRestart bool) error {
 	client, err := a.connectDAO()
@@ -115,4 +127,34 @@ func (a *api) Rollback(snapshotID string, forceRestart bool) error {
 	}
 
 	return nil
+}
+
+// TagSnapshot tags an existing snapshot with 1 or more strings
+func (a *api) TagSnapshot(snapshotID string, tagName string) ([]string, error) {
+	client, err := a.connectDAO()
+	if err != nil {
+		return nil, err
+	}
+
+	var newTagList []string
+	if err := client.TagSnapshot(dao.TagSnapshotRequest{snapshotID, tagName}, &newTagList); err != nil {
+		return newTagList, err
+	}
+
+	return newTagList, nil
+}
+
+// RemoveSnapshotTag removes a specific tag from an existing snapshot
+func (a *api) RemoveSnapshotTag(snapshotID string, tagName string) ([]string, error) {
+	client, err := a.connectDAO()
+	if err != nil {
+		return nil, err
+	}
+
+	var newTagList []string
+	if err := client.RemoveSnapshotTag(dao.TagSnapshotRequest{snapshotID, tagName}, &newTagList); err != nil {
+		return newTagList, err
+	}
+
+	return newTagList, nil
 }

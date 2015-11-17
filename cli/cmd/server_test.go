@@ -11,12 +11,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// +build unit
+
 package cmd
 
 import (
 	"fmt"
 
 	"github.com/control-center/serviced/cli/api"
+	"github.com/control-center/serviced/utils"
 )
 
 var DefaultServerAPITest = ServerAPITest{}
@@ -31,12 +34,12 @@ func (t ServerAPITest) StartServer() error {
 }
 
 func InitServerAPITest(args ...string) {
-	New(DefaultServerAPITest, TestConfigReader(map[string]string{})).Run(args)
+	New(DefaultServerAPITest, utils.TestConfigReader(map[string]string{})).Run(args)
 }
 
 func ExampleSerivcedCLI_CmdServer_good() {
 	InitServerAPITest("serviced", "--master", "server")
-	InitServerAPITest("serviced", "--agent", "server")
+	InitServerAPITest("serviced", "--agent", "--endpoint", "10.20.30.40", "server")
 	InitServerAPITest("serviced", "--agent", "--master", "server")
 
 	// Output:

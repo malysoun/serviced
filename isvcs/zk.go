@@ -11,11 +11,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package agent implements a service that runs on a serviced node. It is
-// responsible for ensuring that a particular node is running the correct services
-// and reporting the state and health of those services back to the master
-// serviced.
-
 package isvcs
 
 import (
@@ -25,31 +20,46 @@ import (
 	"time"
 )
 
-var zookeeperPortBinding = portBinding{
-	HostIp:         "0.0.0.0",
-	HostIpOverride: "", // zookeeper should always be open
-	HostPort:       2181,
-}
-
-var exhibitorPortBinding = portBinding{
-	HostIp:         "127.0.0.1",
-	HostIpOverride: "SERVICED_ISVC_ZOOKEEPER_PORT_12181_HOSTIP",
-	HostPort:       12181,
-}
-
-var Zookeeper = IServiceDefinition{
-	Name:         "zookeeper",
-	Repo:         IMAGE_REPO,
-	Tag:          IMAGE_TAG,
-	Command:      func() string { return "exec /opt/zookeeper-3.4.5/bin/zkServer.sh start-foreground" },
-	PortBindings: []portBinding{zookeeperPortBinding, exhibitorPortBinding},
-	Volumes:      map[string]string{"data": "/tmp"},
-}
-
+var Zookeeper IServiceDefinition
 var zookeeper *IService
 
-func init() {
+func initZK() {
 	var err error
+	Zookeeper = IServiceDefinition{
+		ID:      ZookeeperISVC.ID,
+		Name:    "zookeeper",
+		Repo:    ZK_IMAGE_REPO,
+		Tag:     ZK_IMAGE_TAG,
+		Command: func() string { return "exec start-zookeeper" },
+		PortBindings: []portBinding{
+			// client port
+			{
+				HostIp:         "0.0.0.0",
+				HostIpOverride: "",
+				HostPort:       2181,
+			},
+			// exhibitor port
+			{
+				HostIp:         "127.0.0.1",
+				HostIpOverride: "SERVICED_ISVC_ZOOKEEPER_PORT_12181_HOSTIP",
+				HostPort:       12181,
+			},
+			// peer port
+			{
+				HostIp:         "0.0.0.0",
+				HostIpOverride: "",
+				HostPort:       2888,
+			},
+			// leader port
+			{
+				HostIp:         "0.0.0.0",
+				HostIpOverride: "",
+				HostPort:       3888,
+			},
+		},
+		Volumes: map[string]string{"data": "/var/zookeeper"},
+	}
+
 	defaultHealthCheck := healthCheckDefinition{
 		healthCheck: zkHealthCheck,
 		Interval:    DEFAULT_HEALTHCHECK_INTERVAL,

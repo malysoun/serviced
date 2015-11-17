@@ -11,6 +11,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// +build integration,!quick
+
 package service
 
 import (
@@ -139,6 +141,8 @@ func (h *TestHostStateHandler) StopService(state *servicestate.ServiceState) err
 func (t *ZZKTest) TestHostStateListener_Listen(c *C) {
 	conn, err := zzk.GetLocalConnection("/base")
 	c.Assert(err, IsNil)
+	err = conn.CreateDir(servicepath())
+	c.Assert(err, IsNil)
 
 	shutdown := make(chan interface{})
 	defer close(shutdown)
@@ -150,7 +154,7 @@ func (t *ZZKTest) TestHostStateListener_Listen(c *C) {
 
 	// Add a service
 	svc := service.Service{ID: "test-service-1", Instances: 3}
-	err = UpdateService(conn, svc)
+	err = UpdateService(conn, svc, false)
 	c.Assert(err, IsNil)
 
 	// Add host
@@ -232,6 +236,8 @@ func (t *ZZKTest) TestHostStateListener_Listen(c *C) {
 func (t *ZZKTest) TestHostStateListener_Listen_BadState(c *C) {
 	conn, err := zzk.GetLocalConnection("/base_badstate")
 	c.Assert(err, IsNil)
+	err = conn.CreateDir(servicepath())
+	c.Assert(err, IsNil)
 
 	shutdown := make(chan interface{})
 	defer close(shutdown)
@@ -242,7 +248,7 @@ func (t *ZZKTest) TestHostStateListener_Listen_BadState(c *C) {
 
 	// Add a service
 	svc := service.Service{ID: "test-service-1", Instances: 3}
-	err = UpdateService(conn, svc)
+	err = UpdateService(conn, svc, false)
 	c.Assert(err, IsNil)
 
 	// Add the host
@@ -279,6 +285,8 @@ func (t *ZZKTest) TestHostStateListener_Listen_BadState(c *C) {
 func (t *ZZKTest) TestHostStateListener_Spawn_StartAndStop(c *C) {
 	conn, err := zzk.GetLocalConnection("/base")
 	c.Assert(err, IsNil)
+	err = conn.CreateDir(servicepath())
+	c.Assert(err, IsNil)
 
 	shutdown := make(chan interface{})
 	defer close(shutdown)
@@ -290,7 +298,7 @@ func (t *ZZKTest) TestHostStateListener_Spawn_StartAndStop(c *C) {
 
 	// Add a service
 	svc := service.Service{ID: "test-service-1", Instances: 1}
-	err = UpdateService(conn, svc)
+	err = UpdateService(conn, svc, false)
 	c.Assert(err, IsNil)
 
 	// Add a host
@@ -339,6 +347,7 @@ func (t *ZZKTest) TestHostStateListener_Spawn_StartAndStop(c *C) {
 	}
 
 	var node1, node2 ServiceStateNode
+	listener.Ready()
 	go func() {
 		listener.Spawn(shutdown, stateID)
 	}()
@@ -376,6 +385,8 @@ func (t *ZZKTest) TestHostStateListener_Spawn_StartAndStop(c *C) {
 func (t *ZZKTest) TestHostStateListener_Spawn_AttachAndDelete(c *C) {
 	conn, err := zzk.GetLocalConnection("/base")
 	c.Assert(err, IsNil)
+	err = conn.CreateDir(servicepath())
+	c.Assert(err, IsNil)
 
 	shutdown := make(chan interface{})
 	defer close(shutdown)
@@ -386,7 +397,7 @@ func (t *ZZKTest) TestHostStateListener_Spawn_AttachAndDelete(c *C) {
 
 	// Add a service
 	svc := service.Service{ID: "test-service-1", Instances: 1}
-	err = UpdateService(conn, svc)
+	err = UpdateService(conn, svc, false)
 	c.Assert(err, IsNil)
 
 	// Add a host
@@ -457,6 +468,8 @@ func (t *ZZKTest) TestHostStateListener_Spawn_AttachAndDelete(c *C) {
 func (t *ZZKTest) TestHostStateListener_Spawn_Shutdown(c *C) {
 	conn, err := zzk.GetLocalConnection("/base")
 	c.Assert(err, IsNil)
+	err = conn.CreateDir(servicepath())
+	c.Assert(err, IsNil)
 
 	shutdown := make(chan interface{})
 
@@ -466,7 +479,7 @@ func (t *ZZKTest) TestHostStateListener_Spawn_Shutdown(c *C) {
 
 	// Add a service
 	svc := service.Service{ID: "test-service-1", Instances: 1}
-	err = UpdateService(conn, svc)
+	err = UpdateService(conn, svc, false)
 	c.Assert(err, IsNil)
 
 	// Add a host
@@ -525,6 +538,8 @@ func (t *ZZKTest) TestHostStateListener_Spawn_Shutdown(c *C) {
 func (t *ZZKTest) TestHostStateListener_pauseANDresume(c *C) {
 	conn, err := zzk.GetLocalConnection("/base_pauseANDresume")
 	c.Assert(err, IsNil)
+	err = conn.CreateDir(servicepath())
+	c.Assert(err, IsNil)
 
 	handler := new(TestHostStateHandler).init()
 	listener := NewHostStateListener(handler, "test-host-1")
@@ -532,7 +547,7 @@ func (t *ZZKTest) TestHostStateListener_pauseANDresume(c *C) {
 
 	// Add a service
 	svc := service.Service{ID: "test-service-1", Instances: 1}
-	err = UpdateService(conn, svc)
+	err = UpdateService(conn, svc, false)
 	c.Assert(err, IsNil)
 
 	// Add a host

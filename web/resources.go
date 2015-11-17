@@ -27,6 +27,7 @@ import (
 	"github.com/zenoss/go-json-rest"
 
 	"github.com/control-center/serviced/dao"
+	"github.com/control-center/serviced/domain"
 	"github.com/control-center/serviced/domain/service"
 	"github.com/control-center/serviced/domain/servicetemplate"
 	"github.com/control-center/serviced/isvcs"
@@ -34,6 +35,7 @@ import (
 	"github.com/control-center/serviced/node"
 	"github.com/control-center/serviced/servicedversion"
 	"github.com/control-center/serviced/utils"
+	"github.com/control-center/serviced/volume"
 )
 
 var empty interface{}
@@ -299,13 +301,16 @@ func restGetAllServices(w *rest.ResponseWriter, r *rest.Request, client *node.Co
 		restServerError(w, err)
 		return
 	}
-	if since == "" {
-		result = append(result, getISVCS()...)
-	} else {
-		t0 := time.Now().Add(-tsince)
-		for _, isvc := range getISVCS() {
-			if isvc.UpdatedAt.After(t0) {
-				result = append(result, isvc)
+
+	if tenantID == "" { //Don't add isvcs if a tenant is specified
+		if since == "" {
+			result = append(result, getISVCS()...)
+		} else {
+			t0 := time.Now().Add(-tsince)
+			for _, isvc := range getISVCS() {
+				if isvc.UpdatedAt.After(t0) {
+					result = append(result, isvc)
+				}
 			}
 		}
 	}
@@ -788,9 +793,11 @@ func restSnapshotService(w *rest.ResponseWriter, r *rest.Request, client *node.C
 		restBadRequest(w, err)
 		return
 	}
-
+	req := dao.SnapshotRequest{
+		ServiceID: serviceID,
+	}
 	var label string
-	err = client.Snapshot(dao.SnapshotRequest{serviceID, ""}, &label)
+	err = client.Snapshot(req, &label)
 	if err != nil {
 		glog.Errorf("Unexpected error snapshotting service: %v", err)
 		restServerError(w, err)
@@ -879,6 +886,42 @@ func downloadServiceStateLogs(w *rest.ResponseWriter, r *rest.Request, client *n
 
 func restGetServicedVersion(w *rest.ResponseWriter, r *rest.Request, client *node.ControlClient) {
 	w.WriteJson(servicedversion.GetVersion())
+}
+
+func restGetStorage(w *rest.ResponseWriter, r *rest.Request, client *node.ControlClient) {
+	volumeStatuses := volume.GetStatus()
+	if volumeStatuses == nil || volumeStatuses.StatusMap == nil {
+		err := fmt.Errorf("Unexpected error getting volume status")
+		glog.Errorf("%s", err)
+		restServerError(w, err)
+		return
+	}
+
+	type VolumeInfo struct {
+		Name              string
+		Status            volume.Status
+		MonitoringProfile domain.MonitorProfile
+	}
+
+	// REST collections should return arrays, not maps
+	storageInfo := make([]VolumeInfo, 0, len(volumeStatuses.StatusMap))
+	for volumeName, volumeStatus := range volumeStatuses.StatusMap {
+		volumeInfo := VolumeInfo{Name: volumeName, Status: volumeStatus}
+		tags := map[string][]string{}
+		profile, err := volumeProfile.ReBuild("1h-ago", tags)
+		if err != nil {
+			glog.Errorf("Unexpected error getting volume statuses: %v", err)
+			restServerError(w, err)
+			return
+		}
+		//add graphs to profile
+		profile.GraphConfigs = make([]domain.GraphConfig, 1)
+		profile.GraphConfigs[0] = newVolumeUsageGraph(tags)
+		volumeInfo.MonitoringProfile = *profile
+		storageInfo = append(storageInfo, volumeInfo)
+	}
+
+	w.WriteJson(storageInfo)
 }
 
 func RestBackupCreate(w *rest.ResponseWriter, r *rest.Request, client *node.ControlClient) {

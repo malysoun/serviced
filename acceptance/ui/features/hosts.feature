@@ -1,4 +1,4 @@
-@hosts
+@hosts @screenshot
 Feature: Host Management
   In order to use Control Center
   As a CC admin user
@@ -6,9 +6,10 @@ Feature: Host Management
 
   Background:
     Given that the admin user is logged in
+      And that the default resource pool is added
 
   Scenario: View empty Hosts page
-    Given there are no hosts defined
+    Given there are no hosts added
     When I am on the hosts page
     Then I should see "Hosts Map"
       And I should see "Name"
@@ -20,7 +21,7 @@ Feature: Host Management
 
   Scenario: View Add Host dialog
     When I am on the hosts page
-      And I click the Add-Host button
+      And I click the add Host button
     Then I should see the Add Host dialog
       And I should see "Host and port"
       And I should see the Host and port field
@@ -30,9 +31,9 @@ Feature: Host Management
       And I should see the RAM Commitment field
 
   Scenario: Add an invalid host with an invalid name
-    Given there are no hosts defined
+    Given there are no hosts added
     When I am on the hosts page
-      And I click the Add-Host button
+      And I click the add Host button
       And I fill in the Host Name field with "bogushost"
       And I fill in the Resource Pool field with "table://hosts/defaultHost/pool"
       And I fill in the RAM Commitment field with "table://hosts/defaultHost/commitment"
@@ -43,21 +44,21 @@ Feature: Host Management
       And I should see an empty Hosts page
 
   Scenario: Add an invalid host with an invalid port
-    Given there are no hosts defined
+    Given there are no hosts added
     When I am on the hosts page
-      And I click the Add-Host button
+      And I click the add Host button
       And I fill in the Host Name field with "172.17.42.1:9999"
       And I fill in the Resource Pool field with "table://hosts/defaultHost/pool"
       And I fill in the RAM Commitment field with "table://hosts/defaultHost/commitment"
       And I click "Add Host"
     Then I should see "Error"
-      And I should see "Internal Server Error: dial tcp 172.17.42.1:9999"
+      And I should see "Bad Request: dial tcp 172.17.42.1:9999: connection refused"
       And I should see an empty Hosts page
 
   Scenario: Add an invalid host with an invalid Resource Pool field
-    Given there are no hosts defined
+    Given there are no hosts added
     When I am on the hosts page
-      And I click the Add-Host button
+      And I click the add Host button
       And I fill in the Host Name field with "table://hosts/defaultHost/nameAndPort"
       And I fill in the RAM Commitment field with "table://hosts/defaultHost/commitment"
       And I click "Add Host"
@@ -66,9 +67,9 @@ Feature: Host Management
       And I should see an empty Hosts page
 
   Scenario: Add an invalid host with an invalid RAM Commitment field
-    Given there are no hosts defined
+    Given there are no hosts added
     When I am on the hosts page
-      And I click the Add-Host button
+      And I click the add Host button
       And I fill in the Host Name field with "table://hosts/defaultHost/nameAndPort"
       And I fill in the Resource Pool field with "table://hosts/defaultHost/pool"
       And I fill in the RAM Commitment field with "invalidentry"
@@ -78,9 +79,9 @@ Feature: Host Management
       And I should see an empty Hosts page
 
   Scenario: Fill in the hosts dialog and cancel
-    Given there are no hosts defined
+    Given there are no hosts added
     When I am on the hosts page
-      And I click the Add-Host button
+      And I click the add Host button
       And I fill in the Host Name field with "table://hosts/defaultHost/nameAndPort"
       And I fill in the Resource Pool field with "table://hosts/defaultHost/pool"
       And I fill in the RAM Commitment field with "table://hosts/defaultHost/commitment"
@@ -90,9 +91,9 @@ Feature: Host Management
 
   @clean_hosts
   Scenario: Add an valid host
-    Given there are no hosts defined
+    Given there are no hosts added
     When I am on the hosts page
-      And I click the Add-Host button
+      And I click the add Host button
       And I fill in the Host Name field with "table://hosts/defaultHost/nameAndPort"
       And I fill in the Resource Pool field with "table://hosts/defaultHost/pool"
       And I fill in the RAM Commitment field with "table://hosts/defaultHost/commitment"
@@ -104,12 +105,12 @@ Feature: Host Management
       And I should see "table://hosts/defaultHost/ramGB" in the "RAM Commitment" column
       And I should see "table://hosts/defaultHost/cores" in the "CPU Cores" column
       And I should see "Showing 1 Result"
-  
+
   @clean_hosts
   Scenario: Add another valid host
-    Given only the default host is defined
+    Given only the default host is added
     When I am on the hosts page
-      And I click the Add-Host button
+      And I click the add Host button
       And I fill in the Host Name field with "table://hosts/host2/nameAndPort"
       And I fill in the Resource Pool field with "table://hosts/host2/pool"
       And I fill in the RAM Commitment field with "table://hosts/host2/commitment"
@@ -127,20 +128,41 @@ Feature: Host Management
       And I should see "table://hosts/host2/ccRelease" in the "CC Release" column
       And I should see "Showing 2 Results"
 
+  @clean_hosts @clean_pools
+  Scenario: Add a valid host in a non-default Resource Pool
+    Given that the "table://hosts/host3/pool" pool is added
+    When I am on the hosts page
+      And I click the add Host button
+      And I fill in the Host Name field with "table://hosts/host3/nameAndPort"
+      And I fill in the Resource Pool field with "table://hosts/host3/pool"
+      And I fill in the RAM Commitment field with "table://hosts/host3/commitment"
+      And I click "Add Host"
+    Then I should see "Success"
+      And I should see an entry for "table://hosts/host3/name" in the table
+      And I should see "table://hosts/host3/name" in the "Name" column
+      And I should see "table://hosts/host3/pool" in the "Resource Pool" column
+      And I should see "table://hosts/host3/memoryGB" in the "Memory" column
+      And I should see "table://hosts/host3/ramGB" in the "RAM Commitment" column
+      And I should see "table://hosts/host3/cores" in the "CPU Cores" column
+      And I should see "table://hosts/host3/kernelVersion" in the "Kernel Version" column
+      And I should see "table://hosts/host3/ccRelease" in the "CC Release" column
+
   @clean_hosts
   Scenario: Add a duplicate host
-    Given only the default host is defined
+    Given only the default host is added
     When I am on the hosts page
-      And I click the Add-Host button
+      And I click the add Host button
       And I fill in the Host Name field with "table://hosts/defaultHost/nameAndPort"
       And I fill in the Resource Pool field with "table://hosts/defaultHost/pool"
       And I fill in the RAM Commitment field with "table://hosts/defaultHost/commitment"
       And I click "Add Host"
     Then I should see "Error"
       And I should see "Internal Server Error: host already exists"
+    When I close the dialog
+    Then I should see "Showing 1 Result"
 
   Scenario: Remove a host
-    Given only the default host is defined
+    Given only the default host is added
     When I am on the hosts page
       And I remove "table://hosts/defaultHost/name"
     Then I should see "This action will permanently delete the host"
@@ -154,4 +176,47 @@ Feature: Host Management
     Then I should see "By RAM"
       And I should see "By CPU"
       And I should not see "Active"
-      
+
+  @clean_hosts
+  Scenario: View Host Details
+    Given only the default host is added
+    When I am on the hosts page
+      And I view the details of "table://hosts/defaultHost/name" in the "Hosts" table
+    Then I should see "Graphs"
+      And I should see "CPU Usage"
+      And I should see "Load Average"
+      And I should see "Memory Usage"
+      And I should see "Open File Descriptors"
+      And I should see "Memory Major Page Faults"
+      And I should see "Paging"
+      And I should see "IPs"
+      And I should see "Services Instances"
+
+  @clean_hosts
+  Scenario: View default host details
+    Given only the default host is added
+    When I am on the hosts page
+      And I view the details of "table://hosts/defaultHost/name" in the "Hosts" table
+    Then the details for "Name" should be "table://hosts/defaultHost/hostID"
+      And the details for "Resource Pool" should be "table://hosts/defaultHost/pool"
+      And the details for "Memory" should be "table://hosts/defaultHost/memoryGB"
+      And the details for "CPU Cores" should be "table://hosts/defaultHost/cores"
+      And the details for "Kernel Version" should be "table://hosts/defaultHost/kernelVersion"
+      And the details for "Kernel Release" should be "table://hosts/defaultHost/kernelRelease"
+      And the details for "CC Release" should be "table://hosts/defaultHost/ccRelease"
+      And the details for "IP Address" should be "table://hosts/defaultHost/outboundIP"
+      And the details for "RAM Commitment" should be "table://hosts/defaultHost/ramGB"
+
+  @clean_hosts
+  Scenario: View Host Map
+    Given only the default host is added
+    When I am on the hosts page
+      And I add the "host2" host
+      And I click the Hosts Map button
+    Then I should see "By RAM"
+      And I should see "By CPU"
+      And I should see "table://hosts/defaultHost/name"
+      And I should see "table://hosts/host2/name"
+    When I click "By CPU"
+    Then I should see "table://hosts/defaultHost/name"
+      And I should see "table://hosts/host2/name"

@@ -29,7 +29,7 @@
         angular.extend(newFactory, {
             // TODO - update list by application instead
             // of all services ever?
-            update: function(force){
+            update: function(force, skipUpdateInstances){
                 var deferred = $q.defer(),
                     now = new Date().getTime(),
                     since;
@@ -87,6 +87,9 @@
                         // HACK - services should update themselves?
                         this.updateHealth();
 
+                        // notify the first services request is done
+                        $rootScope.$emit("ready");
+
                         deferred.resolve();
                     })
                     .finally(() => {
@@ -94,7 +97,9 @@
                     });
 
                 // keep instances up to date
-                instancesFactory.update();
+                if(!skipUpdateInstances){
+                    instancesFactory.update();
+                }
 
                 return deferred.promise;
             },
@@ -315,19 +320,40 @@
 
         // start, stop, or restart this service
         start: function(skipChildren){
-            var promise = resourcesFactory.startService(this.id, skipChildren);
+            var promise = resourcesFactory.startService(this.id, skipChildren),
+                oldDesiredState = this.desiredState;
+
             this.desiredState = START;
-            return promise;
+
+            // if something breaks, return desired
+            // state to its previous value
+            return promise.error(() => {
+                this.desiredState = oldDesiredState;
+            });
         },
         stop: function(skipChildren){
-            var promise = resourcesFactory.stopService(this.id, skipChildren);
+            var promise = resourcesFactory.stopService(this.id, skipChildren),
+                oldDesiredState = this.desiredState;
+
             this.desiredState = STOP;
-            return promise;
+
+            // if something breaks, return desired
+            // state to its previous value
+            return promise.error(() => {
+                this.desiredState = oldDesiredState;
+            });
         },
         restart: function(skipChildren){
-            var promise = resourcesFactory.restartService(this.id, skipChildren);
+            var promise = resourcesFactory.restartService(this.id, skipChildren),
+                oldDesiredState = this.desiredState;
+
             this.desiredState = RESTART;
-            return promise;
+
+            // if something breaks, return desired
+            // state to its previous value
+            return promise.error(() => {
+                this.desiredState = oldDesiredState;
+            });
         },
 
         // gets a list of running instances of this service.
@@ -476,10 +502,11 @@
                 if(service.model.Endpoints){
                     result = service.model.Endpoints.reduce(function(acc, endpoint){
                         // if VHosts, iterate VHosts
-                        if(endpoint.VHosts){
-                            endpoint.VHosts.forEach(function(VHost){
+                        if(endpoint.VHostList){
+                            endpoint.VHostList.forEach(function(VHost){
                                 acc.push({
-                                    Name: VHost,
+                                    Name: VHost.Name,
+                                    Enabled: VHost.Enabled,
                                     Application: service.name,
                                     ServiceEndpoint: endpoint.Application,
                                     ApplicationId: service.id,

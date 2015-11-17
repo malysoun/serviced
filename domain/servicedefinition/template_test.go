@@ -11,6 +11,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// +build integration
+
 package servicedefinition
 
 import (
@@ -37,7 +39,7 @@ func init() {
 				ImageID: "ubuntu",
 				ConfigFiles: map[string]ConfigFile{
 					"/loadavg.sh": ConfigFile{Owner: "root:root", Filename: "/loadavg.sh", Permissions: "0775", Content: `#!/bin/bash
- 
+
 interval=1
 
 
@@ -46,7 +48,7 @@ if [ ! -x /usr/bin/curl ]; then
 		echo "Could not install curl"
 		exit 1
 	fi
-	
+
 fi
 echo "posting loadavg at $interval second(s) interval"
 while :
@@ -54,14 +56,14 @@ while :
 	now=` + "`date +%s`" + `
 	value=` + "`cat /proc/loadavg | cut -d ' ' -f 1`" + `
 	data="{\"control\":{\"type\":null,\"value\":null},\"metrics\":[{\"metric\":\"loadavg\",\"timestamp\":$now,\"value\":$value,\"tags\":{\"name\":\"value\"}}]}"
- 
+
 	output=` + "`curl -s -XPOST -H \"Content-Type: application/json\" -d \"$data\" \"$CONTROLPLANE_CONSUMER_URL\"`" + `
- 
+
 	if ! [[ "$output" == *OK* ]]
 	then
 		echo "failure";
 	fi
- 
+
 	sleep $interval
 done
 `},
@@ -104,6 +106,23 @@ done
 					Pause:  "echo pause",
 					Resume: "echo resume",
 				},
+				Volumes: []Volume{
+					{
+						Owner:             "zenoss:zenoss",
+						Permission:        "0777",
+						ResourcePath:      "test1",
+						ContainerPath:     "/test1",
+						InitContainerPath: "/initFromHere",
+						Type:              "",
+					}, {
+						Owner:             "zenoss:zenoss",
+						Permission:        "0777",
+						ResourcePath:      "test2",
+						ContainerPath:     "/test2",
+						InitContainerPath: "",
+						Type:              "",
+					},
+				},
 			},
 			ServiceDefinition{
 				Name:    "s2",
@@ -124,7 +143,7 @@ done
 						Application: "websvc",
 						Name:        "websvc",
 						Purpose:     "export",
-						VHosts:      []string{"testhost"},
+						VHostList:   []VHost{VHost{Name: "testhost"}},
 					},
 				},
 				LogConfigs: []LogConfig{
@@ -168,6 +187,11 @@ func (a *ServiceDefinition) equals(b *ServiceDefinition) (identical bool, msg st
 		return false, fmt.Sprintf("Number of sub services differ between %s [%d] and %s [%d]",
 			a.Name, len(a.Services), b.Name, len(b.Services))
 	}
+	if len(a.Volumes) != len(b.Volumes) {
+		return false, fmt.Sprintf("Number of volumes differ between %s [%d] and %s [%d]",
+			a.Name, len(a.Volumes), b.Name, len(b.Volumes))
+	}
+
 	sort.Sort(ServiceDefinitionByName(a.Services))
 	sort.Sort(ServiceDefinitionByName(b.Services))
 

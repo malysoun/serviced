@@ -11,6 +11,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// +build unit
+
 // Package agent implements a service that runs on a serviced node. It is
 // responsible for ensuring that a particular node is running the correct services
 // and reporting the state and health of those services back to the master
@@ -20,7 +22,7 @@
 package node
 
 import (
-	"github.com/control-center/serviced/dao"
+	"github.com/control-center/serviced/domain/applicationendpoint"
 
 	"testing"
 )
@@ -32,9 +34,9 @@ func TestAddControlPlaneEndpoints(t *testing.T) {
 	agent := &HostAgent{}
 	agent.master = "127.0.0.1:0"
 	agent.uiport = ":443"
-	endpoints := make(map[string][]dao.ApplicationEndpoint)
+	endpoints := make(map[string][]applicationendpoint.ApplicationEndpoint)
 
-	consumer_endpoint := dao.ApplicationEndpoint{}
+	consumer_endpoint := applicationendpoint.ApplicationEndpoint{}
 	consumer_endpoint.ServiceID = "controlplane_consumer"
 	consumer_endpoint.Application = "controlplane_consumer"
 	consumer_endpoint.ContainerIP = "127.0.0.1"
@@ -44,7 +46,7 @@ func TestAddControlPlaneEndpoints(t *testing.T) {
 	consumer_endpoint.HostIP = "127.0.0.1"
 	consumer_endpoint.Protocol = "tcp"
 
-	controlplane_endpoint := dao.ApplicationEndpoint{}
+	controlplane_endpoint := applicationendpoint.ApplicationEndpoint{}
 	controlplane_endpoint.ServiceID = "controlplane"
 	controlplane_endpoint.Application = "controlplane"
 	controlplane_endpoint.ContainerIP = "127.0.0.1"

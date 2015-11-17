@@ -11,11 +11,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package agent implements a service that runs on a serviced node. It is
-// responsible for ensuring that a particular node is running the correct services
-// and reporting the state and health of those services back to the master
-// serviced.
-
 package isvcs
 
 import (
@@ -24,7 +19,7 @@ import (
 
 var opentsdb *IService
 
-func init() {
+func initOTSDB() {
 	var err error
 	command := `cd /opt/zenoss && exec supervisord -n -c /opt/zenoss/etc/supervisor.conf`
 	opentsdbPortBinding := portBinding{
@@ -60,6 +55,7 @@ func init() {
 
 	opentsdb, err = NewIService(
 		IServiceDefinition{
+			ID:      OpentsdbISVC.ID,
 			Name:    "opentsdb",
 			Repo:    IMAGE_REPO,
 			Tag:     IMAGE_TAG,
@@ -86,7 +82,8 @@ func (c *OpenTsdbISvc) Run() error {
 	start := time.Now()
 	timeout := time.Second * 30
 	for {
-		if _, err := http.Get("http://localhost:4242/version"); err == nil {
+		if resp, err := http.Get("http://localhost:4242/version"); err == nil {
+			resp.Body.Close()
 			break
 		} else {
 			if time.Since(start) > timeout && time.Since(start) < (timeout/4) {

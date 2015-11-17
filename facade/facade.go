@@ -14,8 +14,10 @@
 package facade
 
 import (
+	"github.com/control-center/serviced/dfs"
 	"github.com/control-center/serviced/domain/host"
 	"github.com/control-center/serviced/domain/pool"
+	"github.com/control-center/serviced/domain/registry"
 	"github.com/control-center/serviced/domain/service"
 	"github.com/control-center/serviced/domain/servicetemplate"
 )
@@ -24,21 +26,28 @@ import (
 var _ FacadeInterface = &Facade{}
 
 // New creates an initialized Facade instance
-func New(dockerRegistry string) *Facade {
+func New() *Facade {
 	return &Facade{
-		hostStore:      host.NewStore(),
-		poolStore:      pool.NewStore(),
-		serviceStore:   service.NewStore(),
-		templateStore:  servicetemplate.NewStore(),
-		dockerRegistry: dockerRegistry,
+		hostStore:     host.NewStore(),
+		registryStore: registry.NewStore(),
+		poolStore:     pool.NewStore(),
+		serviceStore:  service.NewStore(),
+		templateStore: servicetemplate.NewStore(),
 	}
 }
 
 // Facade is an entrypoint to available controlplane methods
 type Facade struct {
-	hostStore      *host.HostStore
-	poolStore      *pool.Store
-	templateStore  *servicetemplate.Store
-	serviceStore   *service.Store
-	dockerRegistry string
+	hostStore     *host.HostStore
+	registryStore *registry.ImageRegistryStore
+	poolStore     *pool.Store
+	templateStore *servicetemplate.Store
+	serviceStore  *service.Store
+
+	zzk ZZK
+	dfs dfs.DFS
 }
+
+func (f *Facade) SetZZK(zzk ZZK) { f.zzk = zzk }
+
+func (f *Facade) SetDFS(dfs dfs.DFS) { f.dfs = dfs }

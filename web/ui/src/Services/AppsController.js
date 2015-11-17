@@ -11,8 +11,13 @@
         "$notification", "resourcesFactory", "authService",
         "$modalService", "$translate", "$timeout",
         "$cookies", "servicesFactory", "miscUtils",
-        "ngTableParams", "$filter",
-    function($scope, $routeParams, $location, $notification, resourcesFactory, authService, $modalService, $translate, $timeout, $cookies, servicesFactory, utils, NgTableParams, $filter){
+        "ngTableParams", "$filter", "poolsFactory",
+    function($scope, $routeParams, $location,
+    $notification, resourcesFactory, authService,
+    $modalService, $translate, $timeout,
+    $cookies, servicesFactory, utils,
+    NgTableParams, $filter, poolsFactory){
+
         // Ensure logged in
         authService.checkLogin($scope);
 
@@ -31,14 +36,13 @@
 
         $scope.modal_deployWizard = function() {
             // the modal occasionally won't show on page load, so we use a timeout to get around that.
-            // TODO - use a separate controller for deploy wizard
             $timeout(function(){
                 $('#addApp').modal('show');
-            });
 
-            // don't auto-show this wizard again
-            // NOTE: $cookies can only deal with string values
-            $cookies.autoRunWizardHasRun = "true";
+                // don't auto-show this wizard again
+                // NOTE: $cookies can only deal with string values
+                $cookies.autoRunWizardHasRun = "true";
+            });
         };
 
         $scope.modal_addTemplate = function() {
@@ -90,8 +94,8 @@
             var vHosts = [];
 
             service.model.Endpoints.forEach(endpoint => {
-                if(endpoint.VHosts){
-                    endpoint.VHosts.forEach(vHost => vHosts.push(vHost));
+                if(endpoint.VHostList){
+                    endpoint.VHostList.forEach(vHost => vHosts.push(vHost));
                 }
             });
 
@@ -105,7 +109,7 @@
         // given a vhost, return a url to it
         $scope.createVHostURL = function(vhost) {
             var port = $location.port() === "" ? "" : ":"+$location.port();
-            var host = vhost.indexOf('.') === -1 ? vhost + "." + $scope.defaultHostAlias : vhost;
+            var host = vhost.Name.indexOf('.') === -1 ? vhost.Name + "." + $scope.defaultHostAlias : vhost.Name;
             return $location.protocol() + "://" + host + port;
         };
 
@@ -169,8 +173,77 @@
             });
         };
 
-        $scope.clickRunningApp = function(service, status) {
-            utils.setServiceState($scope, service, status, $modalService, $translate);
+        // sets a service to start, stop or restart state
+        $scope.setServiceState = function(service, state, skipChildren){
+            service[state](skipChildren).error(function(data, status){
+                $notification.create("Unable to " + state + " service", data.Detail).error();
+            });
+        };
+
+        // filters to be used when counting how many descendent
+        // services will be affected by a state change
+        var serviceStateChangeFilters = {
+            // only stopped services will be started
+            "start": service => service.desiredState === 0,
+            // only started services will be stopped
+            "stop": service => service.desiredState === 1,
+            // only started services will be restarted
+            "restart": service => service.desiredState === 1
+        };
+
+        // clicks to a service's start, stop, or restart
+        // button should first determine if the service has
+        // children and ask the user to choose to start all
+        // children or only the top service
+        $scope.clickRunning = function(service, state){
+            var filterFn = serviceStateChangeFilters[state];
+            var childCount = utils.countTheKids(service, filterFn);
+
+            // if the service has affected children, check if the user
+            // wants to start just the service, or the service and children
+            if(childCount > 0){
+                $scope.modal_confirmSetServiceState(service, state, childCount);
+
+            // if no children, just start the service
+            } else {
+                $scope.setServiceState(service, state);
+            }
+            servicesFactory.updateHealth();
+        };
+
+        // verifies if use wants to start parent service, or parent
+        // and all children
+        $scope.modal_confirmSetServiceState = function(service, state, childCount){
+            $modalService.create({
+                template: ["<h4>"+ $translate.instant("choose_services_"+ state) +"</h4><ul>",
+                    "<li>"+ $translate.instant(state +"_service_name", {name: "<strong>"+service.name+"</strong>"}) +"</li>",
+                    "<li>"+ $translate.instant(state +"_service_name_and_children", {name: "<strong>"+service.name+"</strong>", count: "<strong>"+childCount+"</strong>"}) +"</li></ul>"
+                ].join(""),
+                model: $scope,
+                title: $translate.instant(state +"_service"),
+                actions: [
+                    {
+                        role: "cancel"
+                    },{
+                        role: "ok",
+                        classes: " ",
+                        label: $translate.instant(state +"_service"),
+                        action: function(){
+                            // the arg here explicitly prevents child services
+                            // from being started
+                            $scope.setServiceState(service, state, true);
+                            this.close();
+                        }
+                    },{
+                        role: "ok",
+                        label: $translate.instant(state +"_service_and_children", {count: childCount}),
+                        action: function(){
+                            $scope.setServiceState(service, state);
+                            this.close();
+                        }
+                    }
+                ]
+            });
         };
 
         $scope.modal_deleteTemplate = function(templateID){
@@ -322,9 +395,12 @@
                 // if only isvcs are deployed, and this is the first time
                 // running deploy wizard, show the deploy apps modal
                 if(!$cookies.autoRunWizardHasRun && $scope.apps.length === 1){
-                    $scope.modalAddApp();
+                    $scope.modal_deployWizard();
                 }
             });
+
+            // deploy wizard needs updated pools
+            poolsFactory.activate();
 
             //register polls
             resourcesFactory.registerPoll("deployingApps", getDeploying, 3000);
@@ -342,6 +418,7 @@
         $scope.$on("$destroy", function(){
             resourcesFactory.unregisterAllPolls();
             servicesFactory.deactivate();
+            poolsFactory.deactivate();
         });
     }]);
 })();
