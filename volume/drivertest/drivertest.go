@@ -193,6 +193,7 @@ func verifyBaseWithExtra(c *C, driver *Driver, vol volume.Volume) {
 	fis, err := ioutil.ReadDir(vol.Path())
 	c.Assert(err, IsNil)
 	fis = filterExtraFiles(fis)
+	c.Log(fis)
 	c.Assert(fis, HasLen, 3)
 }
 
@@ -233,7 +234,7 @@ func DriverTestSnapshots(c *C, drivername volume.DriverType, root string, args [
 	err = wHandle.Close()
 	c.Assert(err, IsNil)
 
-	// Snapshot with the verified base
+	// Snapshot the verified base to produce a new volume
 	err = vol.Snapshot("Snap", "snapshot-message-0", []string{"SnapTag", "tagA"})
 	c.Assert(err, IsNil)
 
@@ -250,15 +251,15 @@ func DriverTestSnapshots(c *C, drivername volume.DriverType, root string, args [
 	c.Check(info.Message, Equals, "snapshot-message-0")
 	c.Check(info.Tags, DeepEquals, []string{"SnapTag", "tagA"})
 
-	// Write another file
-	writeExtra(c, driver, vol, "differentfile")
-
-	// Get the tenant volume of the snapshot that doesn't exist
+	// Get the tenant volume of a snapshot that doesn't exist
 	tvol, err := driver.GetTenant("Base_Snap2")
 	c.Assert(err, Equals, volume.ErrVolumeNotExists)
 	c.Assert(tvol, IsNil)
 
-	// Re-snapshot with the extra file
+	// Write another file to the active volume
+	writeExtra(c, driver, vol, "differentfile")
+
+	// Re-snapshot the active volume with the extra file on it
 	err = vol.Snapshot("Snap2", "snapshot-message-1", []string{"Snap2Tag", "tag1", "tag2", "tag3"})
 	c.Assert(err, IsNil)
 
