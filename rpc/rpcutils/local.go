@@ -14,34 +14,31 @@
 package rpcutils
 
 import (
-
-	"sync"
+	"fmt"
 	"reflect"
 	"strings"
-	"fmt"
+	"sync"
 	"time"
 )
 
 var (
 	localRpcClient = &localClient{}
-	localAddrs = map[string]struct{}{}
+	localAddrs     = map[string]struct{}{}
 )
 
-type    localClient struct {
+type localClient struct {
 	sync.RWMutex
 	rcvrs map[string]interface{}
 }
 
-
-
 func init() {
 	localRpcClient.rcvrs = make(map[string]interface{})
-	localAddrs = make(map[string]struct {})
+	localAddrs = make(map[string]struct{})
 }
 
 func RegisterLocalAddress(addrs ...string) {
 	for _, addr := range addrs {
-		localAddrs[addr]=struct {}{}
+		localAddrs[addr] = struct{}{}
 	}
 }
 
@@ -51,14 +48,14 @@ func RegisterLocal(name string, rcvr interface{}) error {
 
 }
 
-func (l *localClient)register(name string, rcvr interface{}) error {
+func (l *localClient) register(name string, rcvr interface{}) error {
 	l.Lock()
 	defer l.Unlock()
-	l.rcvrs[name]=rcvr
+	l.rcvrs[name] = rcvr
 	return nil
 }
 
-func (l *localClient)Close() error {
+func (l *localClient) Close() error {
 	return nil
 }
 func (l *localClient) Call(serviceMethod string, args interface{}, reply interface{}, timeout time.Duration) error {

@@ -43,6 +43,9 @@ func GetCachedClient(addr string) (Client, error) {
 }
 
 func getClient(addr string) (Client, error) {
+	if _, found := localAddrs[addr]; found {
+		return localRpcClient, nil
+	}
 	addrLock := getAddrLock(addr)
 	addrLock.RLock()
 	client, found := clientCache[addr]
