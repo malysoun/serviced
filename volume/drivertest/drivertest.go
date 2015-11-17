@@ -21,10 +21,14 @@ import (
 	"os"
 	"path"
 	"syscall"
+	"time"
 
+	"github.com/control-center/serviced/commons/docker"
 	"github.com/control-center/serviced/volume"
 	"github.com/control-center/serviced/volume/btrfs"
 	. "gopkg.in/check.v1"
+
+	dockerclient "github.com/fsouza/go-dockerclient"
 )
 
 var (
@@ -156,10 +160,10 @@ func createBase(c *C, driver *Driver, name string) volume.Volume {
 	return volume
 }
 
-func writeExtra(c *C, driver *Driver, vol volume.Volume) {
+func writeExtra(c *C, driver *Driver, vol volume.Volume, filename string) {
 	oldmask := syscall.Umask(0)
 	defer syscall.Umask(oldmask)
-	file := path.Join(vol.Path(), "differentfile")
+	file := path.Join(vol.Path(), filename)
 	err := ioutil.WriteFile(file, []byte("more data"), 0222|os.ModeSetuid)
 	c.Assert(err, IsNil)
 }
@@ -247,7 +251,7 @@ func DriverTestSnapshots(c *C, drivername volume.DriverType, root string, args [
 	c.Check(info.Tags, DeepEquals, []string{"SnapTag", "tagA"})
 
 	// Write another file
-	writeExtra(c, driver, vol)
+	writeExtra(c, driver, vol, "differentfile")
 
 	// Get the tenant volume of the snapshot that doesn't exist
 	tvol, err := driver.GetTenant("Base_Snap2")
@@ -366,6 +370,39 @@ func DriverTestSnapshots(c *C, drivername volume.DriverType, root string, args [
 	c.Assert(driver.Exists("Base"), Equals, false)
 }
 
+func DriverTestSnapshotContainerMounts(c *C, drivername volume.DriverType, root string, args []string) {
+	driver := newDriver(c, drivername, root, args)
+	defer cleanup(c, driver)
+
+	vol := createBase(c, driver, "Base")
+	verifyBase(c, driver, vol)
+
+	cd := &docker.ContainerDefinition{
+		dockerclient.CreateContainerOptions{
+			Config: &dockerclient.Config{
+				Image: "ubuntu:latest",
+				Cmd: []string{"bash", "-c",
+					"for ((i=1;i<=600;i++)); do ls /test/sentinel && exit 1 ; sleep 1; done"},
+			},
+		},
+		dockerclient.HostConfig{
+			Binds: []string{vol.Path() + ":/test"},
+		},
+	}
+
+	ctr, err := docker.NewContainer(cd, true, 300*time.Second, nil, nil)
+	c.Assert(err, IsNil)
+
+	err = vol.Snapshot("Snap", "snapshot-message-0", []string{"SnapTag", "tagA"})
+	c.Assert(err, IsNil)
+
+	writeExtra(c, driver, vol, "sentinel")
+
+	status, err := ctr.Wait(15 * time.Second)
+	c.Assert(err, IsNil) // Timeout implies that the snapshot disconnected the volume
+	c.Assert(status, Equals, 1)
+}
+
 func DriverTestExportImport(c *C, drivername volume.DriverType, exportfs, importfs string, args []string) {
 	buffer := new(bytes.Buffer)
 
@@ -375,7 +412,7 @@ func DriverTestExportImport(c *C, drivername volume.DriverType, exportfs, import
 	defer cleanup(c, importDriver)
 
 	vol := createBase(c, exportDriver, "Base")
-	writeExtra(c, exportDriver, vol)
+	writeExtra(c, exportDriver, vol, "differentfile")
 	verifyBaseWithExtra(c, exportDriver, vol)
 
 	// Set some metadata on the snapshot
