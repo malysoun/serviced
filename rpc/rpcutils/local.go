@@ -22,15 +22,16 @@ import (
 	"time"
 )
 
+var (
+	localRpcClient = &localClient{}
+	localAddrs = map[string]struct{}{}
+)
+
 type    localClient struct {
 	sync.RWMutex
 	rcvrs map[string]interface{}
 }
 
-var (
-	localRpcClient = &localClient{}
-	localAddrs = map[string]struct {}
-)
 
 
 func init() {

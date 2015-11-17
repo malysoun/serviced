@@ -674,11 +674,11 @@ func (d *daemon) registerMasterRPC() error {
 	}
 
 	// register the deprecated rpc servers
-	rpcutils.RegisterLocal("LoadBalancer", c.cpDao)
+	rpcutils.RegisterLocal("LoadBalancer", d.cpDao)
 	if err := d.rpcServer.RegisterName("LoadBalancer", d.cpDao); err != nil {
 		return fmt.Errorf("could not register rpc server LoadBalancer: %v", err)
 	}
-	rpcutils.RegisterLocal("ControlPlane", c.cpDao)
+	rpcutils.RegisterLocal("ControlPlane", d.cpDao)
 	if err := d.rpcServer.RegisterName("ControlPlane", d.cpDao); err != nil {
 		return fmt.Errorf("could not register rpc server LoadBalancer: %v", err)
 	}
