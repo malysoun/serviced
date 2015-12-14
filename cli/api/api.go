@@ -82,6 +82,7 @@ type Options struct {
 	StartISVCS           []string          // ISVCS to start when running as an agent
 	IsvcsZKID            int               // Zookeeper server id when running as a quorum
 	IsvcsZKQuorum        []string          // Members of the zookeeper quorum
+	IsvcsZKConfig        []string          // Custom zookeeper config
 	DockerLogDriver      string            // Which log driver to use with containers
 	DockerLogConfig      []string          // List of key=value options for docker logging
 }

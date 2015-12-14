@@ -90,6 +90,7 @@ func New(driver api.API, config utils.ConfigReader) *ServicedCli {
 		cli.StringSliceFlag{"isvcs-start", convertToStringSlice(defaultOps.StartISVCS), "isvcs to start on agent"},
 		cli.IntFlag{"isvcs-zk-id", defaultOps.IsvcsZKID, "zookeeper id when running in a cluster"},
 		cli.StringSliceFlag{"isvcs-zk-quorum", convertToStringSlice(defaultOps.IsvcsZKQuorum), "isvcs zookeeper host quorum (e.g. -isvcs-zk-quorum zk1@localhost:2888:3888)"},
+		cli.StringSliceFlag{"isvcs-zk-config", convertToStringSlice(defaultOps.IsvcsZKConfig), "isvcs zookeeper customer config (e.g. -isvcs-zk-config forceSync=yes)"},
 
 		cli.BoolTFlag{"report-stats", "report container statistics"},
 		cli.StringFlag{"host-stats", defaultOps.HostStats, "container statistics for host:port"},
@@ -339,6 +340,11 @@ func setIsvcsEnv(ctx *cli.Context) error {
 	}
 	if zkquorum := strings.Join(ctx.GlobalStringSlice("isvcs-zk-quorum"), ","); zkquorum != "" {
 		if err := isvcs.AddEnv("zookeeper:ZK_QUORUM=" + zkquorum); err != nil {
+			return err
+		}
+	}
+	if zkconfig := strings.Join(ctx.GlobalStringSlice("isvcs-zk-config"), ","); zkconfig != "" {
+		if err := isvcs.AddEnv("zookeeper:ZK_CONFIG_PARAMS=" + zkconfig); err != nil {
 			return err
 		}
 	}
