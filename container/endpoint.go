@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"reflect"
 	"regexp"
 	"strconv"
 	"strings"
@@ -674,81 +675,29 @@ func (c *Controller) registerExportedEndpoints() error {
 	for key, exportList := range c.exportedEndpoints {
 		for _, export := range exportList {
 			endpoint := export.endpoint
-
 			epName := fmt.Sprintf("%s_%v", export.endpointName, export.endpoint.InstanceID)
+
+			// REGISTER PUBLIC ENDPOINTS (VHosts and Ports)
 			//register vhosts
 			for _, vhost := range export.vhosts {
-				glog.V(1).Infof("registerExportedEndpoints: vhost epName=%s", epName)
-				//delete any existing vhost that hasn't been cleaned up
-				vhostEndpoint := registry.NewPublicEndpoint(epName, endpoint)
-				pepKey := registry.GetPublicEndpointKey(vhost, registry.EPTypeVHost)
-
-				if paths, err := publicEndpointRegistry.GetChildren(conn, pepKey); err != nil {
-					glog.Errorf("error trying to get previous vhosts: %s", err)
-				} else {
-					glog.V(1).Infof("cleaning vhost paths %v", paths)
-					//clean paths
-					for _, path := range paths {
-						if vep, err := publicEndpointRegistry.GetItem(conn, path); err != nil {
-							glog.V(1).Infof("Could not read %s", path)
-						} else {
-							glog.V(4).Infof("checking instance id of %#v equal %v", vep, c.options.Service.InstanceID)
-							if strconv.Itoa(vep.InstanceID) == c.options.Service.InstanceID {
-								glog.V(1).Infof("Deleting stale vhost registration for %v at %v ", vhost, path)
-								conn.Delete(path)
-							}
-						}
-					}
-				}
-
-				// TODO: avoid set if item already exist with data we want
-				var path string
-				if path, err = publicEndpointRegistry.SetItem(conn, pepKey, vhostEndpoint); err != nil {
-					glog.Errorf("could not register vhost %s for %s: %v", vhost, epName, err)
+				if path, err := c.registerPublicEndpoint(publicEndpointRegistry, epName, vhost, registry.EPTypeVHost); err != nil {
 					return err
-				} else {
-					glog.Infof("Registered vhost %s for %s at %s", vhost, epName, path)
-					c.publicEndpointZKPaths = append(c.publicEndpointZKPaths, path)
 				}
+				c.publicEndpointZKPaths = append(c.publicEndpointZKPaths, path)
 			}
-
 			//register ports
 			for _, port := range export.ports {
 				portStr := fmt.Sprintf("%d", port)
-				glog.V(1).Infof("registerExportedEndpoints: vhost epName=%s", epName)
-				//delete any existing vhost that hasn't been cleaned up
-				vhostEndpoint := registry.NewPublicEndpoint(epName, endpoint)
-				pepKey := registry.GetPublicEndpointKey(portStr, registry.EPTypePort)
-
-				if paths, err := publicEndpointRegistry.GetChildren(conn, pepKey); err != nil {
-					glog.Errorf("error trying to get previous vhosts: %s", err)
-				} else {
-					glog.V(1).Infof("cleaning vhost paths %v", paths)
-					//clean paths
-					for _, path := range paths {
-						if vep, err := publicEndpointRegistry.GetItem(conn, path); err != nil {
-							glog.V(1).Infof("Could not read %s", path)
-						} else {
-							glog.V(4).Infof("checking instance id of %#v equal %v", vep, c.options.Service.InstanceID)
-							if strconv.Itoa(vep.InstanceID) == c.options.Service.InstanceID {
-								glog.V(1).Infof("Deleting stale port registration for %v at %v ", portStr, path)
-								conn.Delete(path)
-							}
-						}
-					}
-				}
-
-				// TODO: avoid set if item already exist with data we want
-				var path string
-				if path, err = publicEndpointRegistry.SetItem(conn, pepKey, vhostEndpoint); err != nil {
-					glog.Errorf("could not register port %s for %s: %v", portStr, epName, err)
+				if path, err := c.registerPublicEndpoint(publicEndpointRegistry, epName, portStr, registry.EPTypePort); err != nil {
 					return err
-				} else {
-					glog.Infof("Registered port %s for %s at %s", portStr, epName, path)
-					c.publicEndpointZKPaths = append(c.publicEndpointZKPaths, path)
 				}
+				c.publicEndpointZKPaths = append(c.publicEndpointZKPaths, path)
 			}
 
+			// REGISTER ENDPOINT
+			upToDate := true
+			newPath := ""
+			newEpn := registry.NewEndpointNode(c.tenantID, export.endpoint.Application, endpoint)
 			// delete any existing endpoint that hasn't been cleaned up
 			if paths, err := endpointRegistry.GetChildren(conn, c.tenantID, export.endpoint.Application); err != nil {
 				glog.Errorf("error trying to get endpoints: %s", err)
@@ -761,8 +710,15 @@ func (c *Controller) registerExportedEndpoints() error {
 					} else {
 						glog.V(4).Infof("checking instance id of %#v equal %v", epn, c.options.Service.InstanceID)
 						if strconv.Itoa(epn.InstanceID) == c.options.Service.InstanceID {
-							glog.V(1).Infof("Deleting stale endpoint registration for %v at %v ", export.endpointName, path)
-							conn.Delete(path)
+							if reflect.DeepEqual(epn, newEpn) {
+								upToDate = true
+								newPath = path
+								glog.V(1).Infof("Correct endpoint registration already found for %v at %v", export.endpointName, path)
+							} else if epn.GetID() != newEpn.GetID() {
+								//if HostContainerKeys are different, then zk paths do not match, so we need to delete this node (otherwise it will get overwritten)
+								glog.V(1).Infof("Deleting stale endpoint registration for %v at %v ", export.endpointName, path)
+								conn.Delete(path)
+							}
 						}
 					}
 				}
@@ -770,16 +726,62 @@ func (c *Controller) registerExportedEndpoints() error {
 			glog.Infof("Registering exported endpoint[%s]: %+v", key, endpoint)
 			endpoint.HostID = c.hostID
 			endpoint.ContainerID = c.dockerID
-			path, err := endpointRegistry.SetItem(conn, registry.NewEndpointNode(c.tenantID, export.endpoint.Application, endpoint))
-			if err != nil {
-				glog.Errorf("  unable to add endpoint: %+v %v", endpoint, err)
-				return err
+
+			if !upToDate || newPath == "" {
+				newPath, err := endpointRegistry.SetItem(conn, newEpn)
+				if err != nil {
+					glog.Errorf("  unable to add endpoint: %+v %v", endpoint, err)
+					return err
+				}
 			}
-			c.exportedEndpointZKPaths = append(c.exportedEndpointZKPaths, path)
-			glog.V(1).Infof("  endpoint successfully added to path: %s", path)
+			c.exportedEndpointZKPaths = append(c.exportedEndpointZKPaths, newPath)
+			glog.V(1).Infof("  endpoint successfully added to path: %s", newPath)
 		}
 	}
 	return nil
+}
+
+func (c *Controller) registerPublicEndpoint(publicEndpointRegistry *registry.PublicEndpointRegistryType, endpointName, pepStr string, pepType registry.PublicEndpointType) (string, error) {
+	glog.V(1).Infof("registerPublicEndpoint: public endpoint endpointName=%s", endpointName)
+	//delete any existing public endpoint that hasn't been cleaned up
+	publicEndpoint := registry.NewPublicEndpoint(endpointName, endpoint)
+	pepKey := registry.GetPublicEndpointKey(pepStr, pepType)
+	upToDate := false
+	newPath := ""
+	if paths, err := publicEndpointRegistry.GetChildren(conn, pepKey); err != nil {
+		glog.Errorf("error trying to get previous public endpoints: %s", err)
+	} else {
+		glog.V(1).Infof("cleaning public endpoint paths %v", paths)
+		//clean paths
+		for _, path := range paths {
+			if pep, err := publicEndpointRegistry.GetItem(conn, path); err != nil {
+				glog.V(1).Infof("Could not read %s", path)
+			} else {
+				glog.V(4).Infof("checking instance id of %#v equal %v", pep, c.options.Service.InstanceID)
+				if strconv.Itoa(pep.InstanceID) == c.options.Service.InstanceID {
+					if reflect.DeepEqual(pep, publicEndpoint) {
+						//nodes are identical, no need to update
+						upToDate = true
+						newPath = path
+						glog.V(1).Infof("Correct public endpoint registration already found for %v at %v ", pepStr, path)
+					} else if pep.GetID() != publicEndpoint.GetID() {
+						//if node IDs are different, then zk paths do not match, so we need to delete this node (otherwise it will get overwritten)
+						glog.V(1).Infof("Deleting stale public endpoint registration for %v at %v ", pepStr, path)
+						conn.Delete(path)
+					}
+				}
+			}
+		}
+	}
+
+	if !upToDate || newPath == "" { // No need to set if correct registration was already there
+		if newPath, err = publicEndpointRegistry.SetItem(conn, pepKey, publicEndpoint); err != nil {
+			glog.Errorf("could not register public endpoint %s for %s: %v", pepStr, endpointName, err)
+			return "", err
+		}
+	}
+	glog.Infof("Registered public endpoint %s for %s at %s", pepStr, endpointName, newPath)
+	return newPath, nil
 }
 
 func (c *Controller) unregisterPublicEndpoints() {
