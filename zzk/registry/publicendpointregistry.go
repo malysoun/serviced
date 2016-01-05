@@ -67,6 +67,10 @@ func (p *PublicEndpoint) Version() interface{} { return p.version }
 // SetVersion is an implementation of client.Node
 func (p *PublicEndpoint) SetVersion(version interface{}) { p.version = version }
 
+func (p *PublicEndpoint) GetID() string {
+	return fmt.Sprintf("%s_%s", p.ServiceID, p.EndpointName)
+}
+
 // PublicEndpointRegistryType is a specific registryType for public endpoints (ports and vhosts)
 type PublicEndpointRegistryType struct {
 	registryType
@@ -93,7 +97,7 @@ func (per *PublicEndpointRegistryType) SetItem(conn client.Connection, key Publi
 		return "", verr
 	}
 
-	nodeID := fmt.Sprintf("%s_%s", node.ServiceID, node.EndpointName)
+	nodeID := node.GetID()
 	return per.setItem(conn, string(key), nodeID, &node)
 }
 
