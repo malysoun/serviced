@@ -675,12 +675,14 @@ func (c *Controller) registerExportedEndpoints() error {
 	for key, exportList := range c.exportedEndpoints {
 		for _, export := range exportList {
 			endpoint := export.endpoint
-			epName := fmt.Sprintf("%s_%v", export.endpointName, export.endpoint.InstanceID)
+			epName := fmt.Sprintf("%s_%v", export.endpointName, endpoint.InstanceID)
+			var err error
+			var path string
 
 			// REGISTER PUBLIC ENDPOINTS (VHosts and Ports)
 			//register vhosts
 			for _, vhost := range export.vhosts {
-				if path, err := c.registerPublicEndpoint(publicEndpointRegistry, epName, vhost, registry.EPTypeVHost); err != nil {
+				if path, err = c.registerPublicEndpoint(publicEndpointRegistry, conn, endpoint, epName, vhost, registry.EPTypeVHost); err != nil {
 					return err
 				}
 				c.publicEndpointZKPaths = append(c.publicEndpointZKPaths, path)
@@ -688,7 +690,7 @@ func (c *Controller) registerExportedEndpoints() error {
 			//register ports
 			for _, port := range export.ports {
 				portStr := fmt.Sprintf("%d", port)
-				if path, err := c.registerPublicEndpoint(publicEndpointRegistry, epName, portStr, registry.EPTypePort); err != nil {
+				if path, err = c.registerPublicEndpoint(publicEndpointRegistry, conn, endpoint, epName, portStr, registry.EPTypePort); err != nil {
 					return err
 				}
 				c.publicEndpointZKPaths = append(c.publicEndpointZKPaths, path)
@@ -710,6 +712,8 @@ func (c *Controller) registerExportedEndpoints() error {
 					} else {
 						glog.V(4).Infof("checking instance id of %#v equal %v", epn, c.options.Service.InstanceID)
 						if strconv.Itoa(epn.InstanceID) == c.options.Service.InstanceID {
+							// Make sure the zk version matches; otherwise the compare fails.
+							epn.SetVersion(newEpn.Version);
 							if reflect.DeepEqual(epn, newEpn) {
 								upToDate = true
 								newPath = path
@@ -728,7 +732,7 @@ func (c *Controller) registerExportedEndpoints() error {
 			endpoint.ContainerID = c.dockerID
 
 			if !upToDate || newPath == "" {
-				newPath, err := endpointRegistry.SetItem(conn, newEpn)
+				newPath, err = endpointRegistry.SetItem(conn, newEpn)
 				if err != nil {
 					glog.Errorf("  unable to add endpoint: %+v %v", endpoint, err)
 					return err
@@ -741,13 +745,15 @@ func (c *Controller) registerExportedEndpoints() error {
 	return nil
 }
 
-func (c *Controller) registerPublicEndpoint(publicEndpointRegistry *registry.PublicEndpointRegistryType, endpointName, pepStr string, pepType registry.PublicEndpointType) (string, error) {
+func (c *Controller) registerPublicEndpoint(publicEndpointRegistry *registry.PublicEndpointRegistryType, conn coordclient.Connection,
+		endpoint applicationendpoint.ApplicationEndpoint, endpointName, pepStr string, pepType registry.PublicEndpointType) (string, error) {
 	glog.V(1).Infof("registerPublicEndpoint: public endpoint endpointName=%s", endpointName)
 	//delete any existing public endpoint that hasn't been cleaned up
 	publicEndpoint := registry.NewPublicEndpoint(endpointName, endpoint)
 	pepKey := registry.GetPublicEndpointKey(pepStr, pepType)
 	upToDate := false
 	newPath := ""
+	var err error
 	if paths, err := publicEndpointRegistry.GetChildren(conn, pepKey); err != nil {
 		glog.Errorf("error trying to get previous public endpoints: %s", err)
 	} else {
@@ -759,6 +765,8 @@ func (c *Controller) registerPublicEndpoint(publicEndpointRegistry *registry.Pub
 			} else {
 				glog.V(4).Infof("checking instance id of %#v equal %v", pep, c.options.Service.InstanceID)
 				if strconv.Itoa(pep.InstanceID) == c.options.Service.InstanceID {
+					// Make sure the zk version matches; otherwise the compare fails.
+					pep.SetVersion(publicEndpoint.Version);
 					if reflect.DeepEqual(pep, publicEndpoint) {
 						//nodes are identical, no need to update
 						upToDate = true
