@@ -56,7 +56,6 @@ import (
 	zkdocker "github.com/control-center/serviced/zzk/docker"
 	zkservice "github.com/control-center/serviced/zzk/service"
 	"github.com/control-center/serviced/zzk/virtualips"
-	"code.google.com/p/rog-go/new9p/client"
 )
 
 /*
@@ -237,22 +236,29 @@ func attachAndRun(dockerID, command string) error {
 // StopService terminates a particular service instance (serviceState) on the localhost.
 func (a *HostAgent) StopService(state *servicestate.ServiceState) error {
 	startTime := time.Now()
-	//glog.Infof("---- START StopService(%v) - container: %s at %s", state, state.DockerID, startTime)
-	//Adefer func() {glog.Infof("---- END StopService(%v). Execution time: %s", state, time.Since(startTime))}()
+	shortServiceID := state.ServiceID[:7] + ":" + strconv.Itoa(state.InstanceID)
+	shortDockerID := state.DockerID[:7]
+	glog.Infof("---- START StopService(%s) (ShortDockerID: %s) at %s", shortServiceID, shortDockerID, startTime)
+	defer func() {glog.Infof("---- END StopService(%s) (ShortDockerID: %s) . Execution time: %s", shortServiceID, shortDockerID, time.Since(startTime))}()
 
 	if state == nil || state.DockerID == "" {
 		return errors.New("missing Docker ID")
 	}
-	glog.Infof("---- Finding container %s", state.DockerID)
+	beginFindTime := time.Now()
+	glog.Infof("---- Service %s: Finding container %s", shortServiceID, shortDockerID)
 	ctr, err := docker.FindContainer(state.DockerID)
-	glog.Infof("---- Done finding container %s. %s since function start", state.DockerID, time.Since(startTime))
+	endFindTime := time.Now()
+	glog.Infof("---- Done finding container %s. %s since function start", shortDockerID, time.Since(startTime))
 	if err != nil {
 		return err
 	}
-	beginStop := time.Now()
-	glog.Infof("---- Calling container.stop on container %s at %s", ctr.Container.ID, beginStop)
+	beginContainerStopTime := time.Now()
+	glog.Infof("---- Service %s (ShortDockerID: %s): Calling container.stop on container %s at %s", shortServiceID, shortDockerID, ctr.Container.ID, beginContainerStopTime)
 	result := ctr.Stop(45 * time.Second)
-	glog.Infof("---- Back from container.stop on container %s at %s. Stop took %s; time since function start %s", ctr.Container.ID, time.Now(), time.Since(beginStop), time.Since(startTime))
+	endContainerStopTime := time.Now()
+	glog.Infof("---- Service %s (ShortDockerID: %s): Back from container.stop on container %s at %s. Stop took %s; time since function start %s", shortServiceID, shortDockerID, ctr.Container.ID, time.Now(), time.Since(beginContainerStopTime), time.Since(startTime))
+	glog.Infof("STATS:,ServiceID, %s,DockerID, %s, beginStop, %s, beginFind, %s, endFind, %s, beginContainerStop, %s, endContainerStop, %s, findTime, %s, containerStopTime, %s, totalTime, %s, stopResult, %s",
+		shortServiceID, shortDockerID, startTime, beginFindTime, endFindTime, beginContainerStopTime, endContainerStopTime, endFindTime.Sub(beginFindTime), endContainerStopTime.Sub(beginContainerStopTime), endContainerStopTime.Sub(startTime), result)
 	return result
 }
 
