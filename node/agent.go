@@ -71,6 +71,210 @@ const (
 	circularBufferSize = 1000
 )
 
+type ShutdownTimeKeeper struct {
+	ContainerID             string
+	ServiceID               string
+	ServiceName             string
+
+	StopStarted             time.Time
+	StartFindContainer      time.Time
+	EndFindContainer        time.Time
+	BeginSendStopCommand    time.Time
+	DieEventCaught          time.Time
+	StartRemoveInstance     time.Time
+	BeginContainerWait      time.Time
+	StopCommandSent         time.Time
+	EndContainerWait        time.Time
+	BeginWriteLogLines      time.Time
+	EndWriteLogLines        time.Time
+	BeginContainerDelete    time.Time
+	EndContainerDelete      time.Time
+	EndRemoveInstance       time.Time
+	CallingHostAgentRemoveInstance   time.Time
+	DieEventFinished                 time.Time
+}
+
+//func (tk ShutdownTimeKeeper) String() string {
+//	Format := time.StampMicro
+//	return fmt.Sprintf("{\n" +
+//	"  ContainerID:          %s\n" +
+//	"  ServiceID:            %s\n" +
+//	"  ServiceName:          %s\n" +
+//	"  -------------------------------------\n" +
+//	"  StopStarted:          %s,\n" +
+//	"  StartFindContainer:   %s,\n" +
+//	"  EndFindContainer:     %s,\n" +
+//	"  BeginSendStopCommand: %s,\n" +
+//	"  DieEventCaught:       %s,\n" +
+//	"  StartRemoveInstance:  %s,\n" +
+//	"  BeginContainerWait:   %s,\n" +
+//	"  StopCommandSent:      %s,\n" +
+//	"  EndContainerWait:     %s,\n" +
+//	"  BeginWriteLogLines:   %s,\n" +
+//	"  EndWriteLogLines:     %s,\n" +
+//	"  BeginContainerDelete: %s,\n" +
+//	"  EndContainerDelete:   %s,\n" +
+//	"  EndRemoveInstance:    %s,\n" +
+//	"  CallingHostAgentRemoveInstance: %s, \n" +
+//	"  DieEventFinished:               %s, \n" +
+//	"  -------------------------------------\n" +
+//	"  Find Container time:     %s\n" +
+//	"  Send Stop Signal time:   %s\n" +
+//	"  BeginStop to DieEvent:   %s\n" +
+//	"  Container Wait:          %s\n" +
+//	"  Time to write Log lines: %s\n" +
+//	"  DieEvent to Finish:      %s\n" +
+//	"  Delete container:        %s\n" +
+//	"  Total time:              %s\n" +
+//	"}",
+//		tk.ContainerID,
+//		tk.ServiceID,
+//		tk.ServiceName,
+//
+//		tk.StopStarted.Format(Format),
+//		tk.StartFindContainer.Format(Format),
+//		tk.EndFindContainer.Format(Format),
+//		tk.BeginSendStopCommand.Format(Format),
+//		tk.DieEventCaught.Format(Format),
+//		tk.StartRemoveInstance.Format(Format),
+//		tk.BeginContainerWait.Format(Format),
+//		tk.StopCommandSent.Format(Format),
+//		tk.EndContainerWait.Format(Format),
+//		tk.BeginWriteLogLines.Format(Format),
+//		tk.EndWriteLogLines.Format(Format),
+//		tk.BeginContainerDelete.Format(Format),
+//		tk.EndContainerDelete.Format(Format),
+//		tk.EndRemoveInstance.Format(Format),
+//		tk.CallingHostAgentRemoveInstance.Format(Format),
+//		tk.DieEventFinished.Format(Format),
+//
+//		tk.EndFindContainer.Sub(tk.StartFindContainer),
+//		tk.StopCommandSent.Sub(tk.BeginSendStopCommand),
+//		tk.DieEventCaught.Sub(tk.StopStarted),
+//		tk.EndContainerWait.Sub(tk.BeginContainerWait),
+//		tk.EndWriteLogLines.Sub(tk.BeginWriteLogLines),
+//		tk.EndRemoveInstance.Sub(tk.DieEventCaught),
+//		tk.EndContainerDelete.Sub(tk.BeginContainerDelete),
+//		tk.EndRemoveInstance.Sub(tk.StopStarted),
+//	)
+//}
+
+func (tk ShutdownTimeKeeper) StatHeader() string {
+	return fmt.Sprintf(
+		"ContainerID," +
+		"ServiceID," +
+		"ServiceName," +
+
+		"StopStarted," +
+		"StartFindContainer," +
+		"EndFindContainer," +
+		"BeginSendStopCommand," +
+		"DieEventCaught," +
+		"CallingHostAgentRemoveInstance," +
+		"StartRemoveInstance," +
+		"BeginContainerWait," +
+		"StopCommandSent," +
+		"EndContainerWait," +
+		"BeginWriteLogLines," +
+		"EndWriteLogLines," +
+		"BeginContainerDelete," +
+		"EndContainerDelete," +
+		"EndRemoveInstance," +
+		"DieEventFinished," +
+
+		"Find Container time," +
+		"Send Stop Command time," +
+		"Container wait time," +
+		"Container Log write time," +
+		"Container kill time," +
+		"Container delete time," +
+		"Hostagent RemoveInstance time," +
+
+		"StopService() time," +
+		"RemoveInstance() time," +
+		"Die Handler () time," +
+
+		"Total time,")
+}
+
+func (tk ShutdownTimeKeeper) StatString() string {
+	Format := time.StampNano
+	return fmt.Sprintf(
+	"%s," +
+	"%s," +
+	"%s," +
+
+	"%s," +
+	"%s," +
+	"%s," +
+	"%s," +
+	"%s," +
+	"%s," +
+	"%s," +
+	"%s," +
+	"%s," +
+	"%s," +
+	"%s," +
+	"%s," +
+	"%s," +
+	"%s," +
+	"%s," +
+	"%s," +
+
+	"%d," +
+	"%d," +
+	"%d," +
+	"%d," +
+	"%d," +
+	"%d," +
+	"%d," +
+
+	"%d," +
+	"%d," +
+	"%d," +
+
+	"%d," +
+	"",
+		tk.ContainerID,
+		tk.ServiceID,
+		tk.ServiceName,
+
+		tk.StopStarted.Format(Format),
+		tk.StartFindContainer.Format(Format),
+		tk.EndFindContainer.Format(Format),
+		tk.BeginSendStopCommand.Format(Format),
+		tk.DieEventCaught.Format(Format),
+		tk.CallingHostAgentRemoveInstance.Format(Format),
+		tk.StartRemoveInstance.Format(Format),
+		tk.BeginContainerWait.Format(Format),
+		tk.StopCommandSent.Format(Format),
+		tk.EndContainerWait.Format(Format),
+		tk.BeginWriteLogLines.Format(Format),
+		tk.EndWriteLogLines.Format(Format),
+		tk.BeginContainerDelete.Format(Format),
+		tk.EndContainerDelete.Format(Format),
+		tk.EndRemoveInstance.Format(Format),
+		tk.DieEventFinished.Format(Format),
+
+		tk.EndFindContainer.Sub(tk.StartFindContainer).Nanoseconds(),
+		tk.StopCommandSent.Sub(tk.BeginSendStopCommand).Nanoseconds(),
+		tk.EndContainerWait.Sub(tk.BeginContainerWait).Nanoseconds(),
+		tk.EndWriteLogLines.Sub(tk.BeginWriteLogLines).Nanoseconds(),
+		tk.BeginContainerDelete.Sub(tk.EndWriteLogLines).Nanoseconds(),
+		tk.EndContainerDelete.Sub(tk.BeginContainerDelete).Nanoseconds(),
+		tk.DieEventFinished.Sub(tk.CallingHostAgentRemoveInstance).Nanoseconds(),
+
+		tk.StopCommandSent.Sub(tk.StopStarted).Nanoseconds(),
+		tk.EndRemoveInstance.Sub(tk.StartRemoveInstance).Nanoseconds(),
+		tk.DieEventFinished.Sub(tk.DieEventCaught).Nanoseconds(),
+
+		tk.DieEventFinished.Sub(tk.StopStarted).Nanoseconds(),
+	)
+}
+
+var TimingMap = make(map[string]*ShutdownTimeKeeper)
+
+
 // HostAgent is an instance of the control center Agent.
 type HostAgent struct {
 	poolID               string
@@ -81,7 +285,7 @@ type HostAgent struct {
 	dockerDNS            []string             // docker dns addresses
 	storage              volume.Driver        // driver supporting the application data
 	mount                []string             // each element is in the form: dockerImage,hostPath,containerPath
-	currentServices      map[string]*exec.Cmd // the current running services
+	currentServices      map[string]*exec.Cmd // the current rFstartunning services
 	mux                  *proxy.TCPMux
 	useTLS               bool // Whether the mux uses TLS
 	proxyRegistry        proxy.ProxyRegistry
@@ -198,6 +402,7 @@ func (a *HostAgent) AttachService(svc *service.Service, state *servicestate.Serv
 	}
 
 	ctr.OnEvent(docker.Die, func(cid string) {
+		TimingMap[ctr.ID].DieEventCaught = time.Now()
 		defer exited(state.ID)
 		glog.Infof("Instance %s (%s) for %s (%s) has died", state.ID, ctr.ID, svc.Name, svc.ID)
 		state.DockerID = cid
@@ -235,30 +440,27 @@ func attachAndRun(dockerID, command string) error {
 
 // StopService terminates a particular service instance (serviceState) on the localhost.
 func (a *HostAgent) StopService(state *servicestate.ServiceState) error {
-	startTime := time.Now()
-	shortServiceID := state.ServiceID[:7] + ":" + strconv.Itoa(state.InstanceID)
-	shortDockerID := state.DockerID[:7]
-	glog.Infof("---- START StopService(%s) (ShortDockerID: %s) at %s", shortServiceID, shortDockerID, startTime)
-	defer func() {glog.Infof("---- END StopService(%s) (ShortDockerID: %s) . Execution time: %s", shortServiceID, shortDockerID, time.Since(startTime))}()
+	TimingMap[state.DockerID] = &ShutdownTimeKeeper{ContainerID: state.DockerID, ServiceID: state.ServiceID, StopStarted: time.Now()}
 
 	if state == nil || state.DockerID == "" {
 		return errors.New("missing Docker ID")
 	}
-	beginFindTime := time.Now()
-	glog.Infof("---- Service %s: Finding container %s", shortServiceID, shortDockerID)
+
+	TimingMap[state.DockerID].StartFindContainer = time.Now()
+
 	ctr, err := docker.FindContainer(state.DockerID)
-	endFindTime := time.Now()
-	glog.Infof("---- Done finding container %s. %s since function start", shortDockerID, time.Since(startTime))
+
+	TimingMap[state.DockerID].EndFindContainer = time.Now()
+
 	if err != nil {
 		return err
 	}
-	beginContainerStopTime := time.Now()
-	glog.Infof("---- Service %s (ShortDockerID: %s): Calling container.stop on container %s at %s", shortServiceID, shortDockerID, ctr.Container.ID, beginContainerStopTime)
-	result := ctr.Stop(45 * time.Second)
-	endContainerStopTime := time.Now()
-	glog.Infof("---- Service %s (ShortDockerID: %s): Back from container.stop on container %s at %s. Stop took %s; time since function start %s", shortServiceID, shortDockerID, ctr.Container.ID, time.Now(), time.Since(beginContainerStopTime), time.Since(startTime))
-	glog.Infof("STATS:,ServiceID, %s,DockerID, %s, beginStop, %s, beginFind, %s, endFind, %s, beginContainerStop, %s, endContainerStop, %s, findTime, %s, containerStopTime, %s, totalTime, %s, stopResult, %s",
-		shortServiceID, shortDockerID, startTime, beginFindTime, endFindTime, beginContainerStopTime, endContainerStopTime, endFindTime.Sub(beginFindTime), endContainerStopTime.Sub(beginContainerStopTime), endContainerStopTime.Sub(startTime), result)
+	TimingMap[state.DockerID].BeginSendStopCommand = time.Now()
+
+	result := ctr.Stop(300 * time.Second)
+
+	TimingMap[state.DockerID].StopCommandSent = time.Now()
+
 	return result
 }
 
@@ -396,10 +598,17 @@ func (a *HostAgent) StartService(svc *service.Service, state *servicestate.Servi
 	})
 
 	ctr.OnEvent(docker.Die, func(cid string) {
+		TimingMap[ctr.ID].DieEventCaught = time.Now()
+		TimingMap[ctr.ID].ServiceName = svc.Name
 		defer exited(state.ID)
 		glog.Infof("Instance %s (%s) for %s (%s) has died", state.ID, ctr.ID, svc.Name, svc.ID)
 		state.DockerID = cid
+		TimingMap[ctr.ID].CallingHostAgentRemoveInstance = time.Now()
 		a.removeInstance(state.ID, ctr)
+		TimingMap[ctr.ID].DieEventFinished = time.Now()
+		glog.Infof(">>>>>> Container %s timing: %s", ctr.ID, TimingMap[ctr.ID])
+		glog.Infof("CONTAINER_STAT_HEADER: %s", TimingMap[ctr.ID].StatHeader())
+		glog.Infof("CONTAINER_STATISTICS: %s", TimingMap[ctr.ID].StatString())
 	})
 	handlerInstalled = true
 
@@ -461,9 +670,19 @@ func (a *HostAgent) setProxy(svc *service.Service, ctr *docker.Container) {
 }
 
 func (a *HostAgent) removeInstance(stateID string, ctr *docker.Container) {
+
+	TimingMap[ctr.ID].StartRemoveInstance = time.Now()
+
 	glog.Info("START removeInstance(%s, %v)", stateID, *ctr)
 	defer glog.Info("END removeInstance(%s, %v)", stateID, *ctr)
-	rc, err := ctr.Wait(time.Second)
+
+	TimingMap[ctr.ID].BeginContainerWait = time.Now()
+
+	rc, err := ctr.Wait(90 * time.Second)
+
+	TimingMap[ctr.ID].EndContainerWait = time.Now()
+	TimingMap[ctr.ID].BeginWriteLogLines = time.Now()
+
 	if err != nil || rc != 0 || glog.GetVerbosity() > 0 {
 		// TODO: output of docker logs is potentially very large
 		// this should be implemented another way, perhaps a docker attach
@@ -480,15 +699,18 @@ func (a *HostAgent) removeInstance(stateID string, ctr *docker.Container) {
 			glog.Warningf("Last 10000 lines of container %s:\n %s", ctr.ID, string(final))
 		}
 	}
+	TimingMap[ctr.ID].EndWriteLogLines = time.Now()
 	if ctr.IsRunning() {
 		glog.Errorf("Instance %s (%s) is still running, killing container", stateID, ctr.ID)
 		ctr.Kill()
 	}
+	TimingMap[ctr.ID].BeginContainerDelete = time.Now()
 	if err := ctr.Delete(true); err != nil {
 		glog.Errorf("Could not remove instance %s (%s): %s", stateID, ctr.ID, err)
 	}
+	TimingMap[ctr.ID].EndContainerDelete = time.Now()
 	glog.Infof("Service state %s (%s) received exit code %d", stateID, ctr.ID, rc)
-
+	TimingMap[ctr.ID].EndRemoveInstance = time.Now()
 }
 
 func updateInstance(state *servicestate.ServiceState, ctr *docker.Container) error {
