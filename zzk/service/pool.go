@@ -19,6 +19,7 @@ import (
 	"github.com/control-center/serviced/domain/pool"
 	"github.com/control-center/serviced/zzk"
 	"github.com/zenoss/glog"
+	"fmt"
 )
 
 const (
@@ -69,13 +70,22 @@ func UpdateResourcePool(conn client.Connection, pool *pool.ResourcePool) error {
 	if err := conn.Get(poolpath(pool.ID), &node); err != nil {
 		if err == client.ErrNoNode {
 			node = PoolNode{ResourcePool: pool}
-			return conn.Create(poolpath(pool.ID), &node)
+			err = conn.Create(poolpath(pool.ID), &node)
+			if err != nil {
+				err = fmt.Errorf("zzk.UpdateResourcePool: Create(%s) failed: %s", poolpath(pool.ID), err)
+			}
+			return err
 		} else {
+			err = fmt.Errorf("zzk.UpdateResourcePool: Get(%s) failed: %s", poolpath(pool.ID), err)
 			return err
 		}
 	}
 	node.ResourcePool = pool
-	return conn.Set(poolpath(pool.ID), &node)
+	err := conn.Set(poolpath(pool.ID), &node)
+	if err != nil {
+		err = fmt.Errorf("zzk.UpdateResourcePool: Set(%s) failed: %s", poolpath(pool.ID), err)
+	}
+	return err
 }
 
 func RemoveResourcePool(conn client.Connection, poolID string) error {

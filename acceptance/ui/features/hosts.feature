@@ -90,7 +90,7 @@ Feature: Host Management
       And I should not see "Success"
 
   @clean_hosts
-  Scenario: Add an valid host
+  Scenario: Add a valid host
     Given there are no hosts added
     When I am on the hosts page
       And I click the add Host button
@@ -102,7 +102,7 @@ Feature: Host Management
       And I should see "table://hosts/defaultHost/name" in the "Name" column
       And I should see "table://hosts/defaultHost/pool" in the "Resource Pool" column
       And I should see "table://hosts/defaultHost/memoryGB" in the "Memory" column
-      And I should see "table://hosts/defaultHost/ramGB" in the "RAM Commitment" column
+#      And I should see "table://hosts/defaultHost/ramGB" in the "RAM Commitment" column
       And I should see "table://hosts/defaultHost/cores" in the "CPU Cores" column
       And I should see "Showing 1 Result"
 
@@ -122,7 +122,7 @@ Feature: Host Management
       And I should see "table://hosts/host2/name" in the "Name" column
       And I should see "table://hosts/host2/pool" in the "Resource Pool" column
       And I should see "table://hosts/host2/memoryGB" in the "Memory" column
-      And I should see "table://hosts/host2/ramGB" in the "RAM Commitment" column
+#      And I should see "table://hosts/host2/ramGB" in the "RAM Commitment" column
       And I should see "table://hosts/host2/cores" in the "CPU Cores" column
       And I should see "table://hosts/host2/kernelVersion" in the "Kernel Version" column
       And I should see "table://hosts/host2/ccRelease" in the "CC Release" column
@@ -142,7 +142,7 @@ Feature: Host Management
       And I should see "table://hosts/host3/name" in the "Name" column
       And I should see "table://hosts/host3/pool" in the "Resource Pool" column
       And I should see "table://hosts/host3/memoryGB" in the "Memory" column
-      And I should see "table://hosts/host3/ramGB" in the "RAM Commitment" column
+#      And I should see "table://hosts/host3/ramGB" in the "RAM Commitment" column
       And I should see "table://hosts/host3/cores" in the "CPU Cores" column
       And I should see "table://hosts/host3/kernelVersion" in the "Kernel Version" column
       And I should see "table://hosts/host3/ccRelease" in the "CC Release" column
@@ -205,7 +205,7 @@ Feature: Host Management
       And the details for "Kernel Release" should be "table://hosts/defaultHost/kernelRelease"
       And the details for "CC Release" should be "table://hosts/defaultHost/ccRelease"
       And the details for "IP Address" should be "table://hosts/defaultHost/outboundIP"
-      And the details for "RAM Commitment" should be "table://hosts/defaultHost/ramGB"
+#      And the details for "RAM Commitment" should be "table://hosts/defaultHost/ramGB"
 
   @clean_hosts
   Scenario: View Host Map

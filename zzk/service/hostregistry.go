@@ -15,6 +15,7 @@ package service
 
 import (
 	"errors"
+	"fmt"
 	"path"
 
 	"github.com/control-center/serviced/coordinator/client"
@@ -222,10 +223,15 @@ func SyncHosts(conn client.Connection, hosts []host.Host) error {
 func AddHost(conn client.Connection, host *host.Host) error {
 	var node HostNode
 	if err := conn.Create(hostpath(host.ID), &node); err != nil {
+		err = fmt.Errorf("zzk.AddHost: Create(%s) failed: %s", hostpath(host.ID), err)
 		return err
 	}
 	node.Host = host
-	return conn.Set(hostpath(host.ID), &node)
+	err := conn.Set(hostpath(host.ID), &node)
+	if err != nil {
+		err = fmt.Errorf("zzk.AddHost: Set(%s) failed: %s", hostpath(host.ID), err)
+	}
+	return err
 }
 
 func UpdateHost(conn client.Connection, host *host.Host) error {
@@ -239,6 +245,7 @@ func UpdateHost(conn client.Connection, host *host.Host) error {
 
 func RemoveHost(cancel <-chan interface{}, conn client.Connection, hostID string) error {
 	if exists, err := zzk.PathExists(conn, hostpath(hostID)); err != nil {
+		err = fmt.Errorf("zzk.RemoveHost: PathExists(%s) failed: %s", hostpath(hostID), err)
 		return err
 	} else if !exists {
 		return nil
@@ -247,11 +254,13 @@ func RemoveHost(cancel <-chan interface{}, conn client.Connection, hostID string
 	// stop all the instances running on that host
 	nodes, err := conn.Children(hostpath(hostID))
 	if err != nil {
+		err = fmt.Errorf("zzk.RemoveHost: Children(%s) failed: %s", hostpath(hostID), err)
 		return err
 	}
 	for _, stateID := range nodes {
 		if err := StopServiceInstance(conn, hostID, stateID); err != nil {
-			glog.Errorf("Could not stop service instance %s: %s", stateID, err)
+			err = fmt.Errorf("zzk.RemoveHost: Could not stop service instance %s: %s", stateID, err)
+			glog.Errorf(err.Error())
 			return err
 		}
 	}
@@ -263,6 +272,7 @@ loop:
 	for {
 		nodes, event, err := conn.ChildrenW(hostpath(hostID), done)
 		if err != nil {
+			err = fmt.Errorf("zzk.RemoveHost: ChildrenW(%s) failed: %s", hostpath(hostID), err)
 			return err
 		} else if len(nodes) == 0 {
 			break
@@ -282,5 +292,9 @@ loop:
 	}
 
 	// remove the parent node
-	return conn.Delete(hostpath(hostID))
+	err = conn.Delete(hostpath(hostID))
+	if err != nil {
+		err = fmt.Errorf("zzk.RemoveHost: Delete(%s) failed: %s", hostpath(hostID), err)
+	}
+	return err
 }

@@ -53,6 +53,7 @@ type PoolIPs struct {
 // AddResourcePool adds a new resource pool
 func (f *Facade) AddResourcePool(ctx datastore.Context, entity *pool.ResourcePool) error {
 	if pool, err := f.GetResourcePool(ctx, entity.ID); err != nil {
+		err = fmt.Errorf("AddResourcePool: GetResourcePool(%s) failed: %s", entity.ID, err)
 		return err
 	} else if pool != nil {
 		return ErrPoolExists
@@ -73,16 +74,23 @@ func (f *Facade) AddResourcePool(ctx datastore.Context, entity *pool.ResourcePoo
 	err := f.beforeEvent(beforePoolAdd, evtctx, entity)
 	defer f.afterEvent(afterPoolAdd, evtctx, entity, err)
 	if err != nil {
+		err = fmt.Errorf("AddResourcePool: beforeEvent(%s) failed: %s", entity.ID, err)
 		return err
 	} else if err = f.poolStore.Put(ctx, pool.Key(entity.ID), entity); err != nil {
+		err = fmt.Errorf("AddResourcePool: Put(%s) failed: %s", entity.ID, err)
 		return err
 	} else if err = f.zzk.UpdateResourcePool(entity); err != nil {
+		err = fmt.Errorf("AddResourcePool: zzk.UpdateResourcePool(%s) failed: %s", entity.ID, err)
 		return err
 	}
 
 	if vips != nil && len(vips) > 0 {
 		entity.VirtualIPs = vips
-		return f.UpdateResourcePool(ctx, entity)
+		err = f.UpdateResourcePool(ctx, entity)
+		if err != nil {
+			err = fmt.Errorf("AddResourcePool: f.UpdateResourcePool(%s) failed: %s", entity.ID, err)
+		}
+		return err
 	}
 	return nil
 }

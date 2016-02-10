@@ -14,6 +14,8 @@
 package api
 
 import (
+	"fmt"
+
 	"github.com/control-center/serviced/domain/pool"
 	"github.com/control-center/serviced/facade"
 )
@@ -65,10 +67,15 @@ func (a *api) AddResourcePool(config PoolConfig) (*pool.ResourcePool, error) {
 	}
 
 	if err := client.AddResourcePool(p); err != nil {
+		err = fmt.Errorf("cli: AddResourcePool(%s) failed: %s", p.ID, err)
 		return nil, err
 	}
 
-	return a.GetResourcePool(p.ID)
+	newPool, err := a.GetResourcePool(p.ID)
+	if err != nil {
+		err = fmt.Errorf("cli: GetResourcePool(%s) failed: %s", p.ID, err)
+	}
+	return newPool, err
 }
 
 // Removes an existing pool

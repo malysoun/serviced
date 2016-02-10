@@ -40,7 +40,7 @@ Feature: Resource Pool Management
       And I fill in the Description field with "none"
       And I click "Add Resource Pool"
     Then I should see "Adding pool failed"
-      And I should see "Internal Server Error: empty Kind id"
+      And I should see "Internal Server Error: AddResourcePool: GetResourcePool() failed: empty Kind id"
 
   @clean_pools
   Scenario: Add a resource pool

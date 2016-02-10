@@ -14,6 +14,7 @@
 package api
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/control-center/serviced/dao"
@@ -91,19 +92,26 @@ func (a *api) AddHost(config HostConfig) (*host.Host, error) {
 
 	h, err := agentClient.BuildHost(req)
 	if err != nil {
+		err = fmt.Errorf("cli: BuildHost(%s) failed: %s", config.Address.Host, err)
 		return nil, err
 	}
 
 	masterClient, err := a.connectMaster()
 	if err != nil {
+		err = fmt.Errorf("cli: connectMaster(%s) failed: %s", config.Address.Host, err)
 		return nil, err
 	}
 
 	if err := masterClient.AddHost(*h); err != nil {
+		err = fmt.Errorf("cli: AddHost(%s) failed: %s", h.ID, err)
 		return nil, err
 	}
 
-	return a.GetHost(h.ID)
+	host, err := a.GetHost(h.ID)
+	if err != nil {
+		err = fmt.Errorf("cli: GetHost(%s) failed: %s", h.ID, err)
+	}
+	return host, err
 }
 
 // Removes an existing host by its id

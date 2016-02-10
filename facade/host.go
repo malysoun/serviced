@@ -42,6 +42,7 @@ func (f *Facade) AddHost(ctx datastore.Context, entity *host.Host) error {
 	glog.V(2).Infof("Facade.AddHost: %v", entity)
 	exists, err := f.GetHost(ctx, entity.ID)
 	if err != nil {
+		err = fmt.Errorf("AddHost: GetHost(%s) failed: %s", entity.ID, err)
 		return err
 	}
 	if exists != nil {
@@ -70,6 +71,7 @@ func (f *Facade) AddHost(ctx datastore.Context, entity *host.Host) error {
 	err = nil
 	defer f.afterEvent(afterHostAdd, ec, entity, err)
 	if err = f.beforeEvent(beforeHostAdd, ec, entity); err != nil {
+		err = fmt.Errorf("AddHost: beforeEvent(%s) failed: %s", entity.ID, err)
 		return err
 	}
 
@@ -78,9 +80,13 @@ func (f *Facade) AddHost(ctx datastore.Context, entity *host.Host) error {
 	entity.UpdatedAt = now
 
 	if err = f.hostStore.Put(ctx, host.HostKey(entity.ID), entity); err != nil {
+		err = fmt.Errorf("AddHost: Put(%s) failed: %s", entity.ID, err)
 		return err
 	}
 	err = f.zzk.AddHost(entity)
+	if err != nil {
+		err = fmt.Errorf("AddHost: zzk.AddHost(%s) failed: %s", entity.ID, err)
+	}
 	return err
 }
 
