@@ -18,21 +18,20 @@
     'use strict';
 
     const DEFAULT_UPDATE_FREQUENCY = 3000;
-    var updateFrequency = DEFAULT_UPDATE_FREQUENCY;
+    const DEFAULT_UPDATE_TIMEOUT = 6000;
 
-    var $q, $interval, $rootScope;
+    var $q, $timeout, $rootScope;
 
     angular.module('baseFactory', []).
-    factory("baseFactory", ["$q", "$interval", "$rootScope", "servicedConfig",
-    function(_$q, _$interval, _$rootScope, servicedConfig){
-
+    factory("baseFactory", ["$q", "$timeout", "$rootScope", "servicedConfig",
+    function(_$q, _$timeout, _$rootScope, servicedConfig){
         $q = _$q;
-        $interval = _$interval;
+        $timeout = _$timeout;
         $rootScope = _$rootScope;
 
         servicedConfig.getConfig()
             .then(config => {
-                updateFrequency = config.PollFrequency * 1000;
+                this.updateFrequency = config.PollFrequency * 1000;
             }).catch(err => {
                 let errMessage = err.statusText;
                 if(err.data && err.data.Detail){
@@ -58,6 +57,10 @@
         this.objArr = [];
         this.updateFn = updateFn;
         this.ObjConstructor = ObjConstructor;
+
+        this.updateFrequency = DEFAULT_UPDATE_FREQUENCY;
+        this.updateTimeout = DEFAULT_UPDATE_TIMEOUT;
+        this.shouldUpdate = false;
     }
 
 
@@ -106,6 +109,7 @@
                 })
                 .error((data, status) => {
                     console.error("Unable to update factory", data);
+                    deferred.reject("Unable to update factory", data);
                 })
                 .finally(() => {
                     // notify the first request is complete
@@ -118,19 +122,77 @@
             return deferred.promise;
         },
 
+        // slowdown update timing. for when things go south
+        backoffUpdateTimers: function(){
+            // TODO - better algorithm
+            this.updateFrequency *= 2;
+            this.updateTimeout *= 2;
+            // TODO - expose a way to notify user that backoff is occurring
+        },
+
+        // restores default update timing. when things are so nice again
+        restoreUpdateTimers: function(){
+            this.updateFrequency = DEFAULT_UPDATE_FREQUENCY;
+            this.updateTimeout = DEFAULT_UPDATE_TIMEOUT;
+        },
+
+        // determines if updateManager should be run again,
+        // and runs it if necessary
+        updateManagerSchedule: function(){
+            if(this.shouldUpdate){
+                // cancel any pending update
+                this.updateManagerCancel();
+                this.updatePromise = $timeout(() => {
+                    this.updateManagerRun();
+                }, this.updateFrequency);
+            }
+        },
+
+        // updates factory at predefined interval and backs
+        // off if backend is responding slowly
+        updateManagerRun: function(){
+            let timeoutTimer;
+            this.updateManagerCancel();
+            this.update()
+                .then(() => {
+                    this.restoreUpdateTimers();
+                    console.log("update success, restoring timers");
+                },
+                (err) => {
+                    this.backoffUpdateTimers();
+                    console.log("backing off timers to", this.updateFrequency, "because:", err);
+                })
+                .finally(() => {
+                    // cancel timeout timer
+                    $timeout.cancel(timeoutTimer);
+                    this.updateManagerSchedule();
+                });
+
+            // ensure no request exceeds a certain timeout
+            timeoutTimer = $timeout(() => {
+                this.backoffUpdateTimers();
+                console.log("backing off timers to", this.updateFrequency,
+                    "because request timed out after", this.updateTimeout);
+                this.updateManagerSchedule();
+            }, this.updateTimeout);
+        },
+
+        updateManagerCancel: function(){
+            if(this.updatePromise){
+                $timeout.cancel(this.updatePromise);
+            }
+        },
+
         // begins auto-update
         activate: function(){
-            if(!this.updatePromise){
-                this.updatePromise = $interval(() => this.update(), updateFrequency);
-            }
+            this.shouldUpdate = true;
+            this.updateManagerRun();
         },
 
         // stops auto-update
         deactivate: function(){
-            if(this.updatePromise){
-                $interval.cancel(this.updatePromise);
-                this.updatePromise = null;
-            }
+            this.shouldUpdate = false;
+            this.updateManagerCancel();
         },
 
         // returns an object by id
