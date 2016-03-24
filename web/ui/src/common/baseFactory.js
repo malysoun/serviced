@@ -19,6 +19,16 @@
 
     const DEFAULT_UPDATE_FREQUENCY = 3000;
     const DEFAULT_UPDATE_TIMEOUT = 6000;
+    const BACKOFF_RANDOMIZATION = 0.25;
+
+    // TODO - ensure these values are always
+    // greater than the globalPollFrequency
+    const MAX_BACKOFF_TIME = 60000;
+    const BACKOFF_NOTIFICATION_THRESHOLD = 12000;
+
+    // fastest possible polling frequency. can be overridden
+    // by serviced configured polling frequency
+    let globalPollFrequency = DEFAULT_UPDATE_FREQUENCY;
 
     var $q, $timeout, $rootScope;
 
@@ -31,7 +41,8 @@
 
         servicedConfig.getConfig()
             .then(config => {
-                this.updateFrequency = config.PollFrequency * 1000;
+                globalPollFrequency = config.PollFrequency * 1000;
+                this.updateFrequency = globalPollFrequency;
             }).catch(err => {
                 let errMessage = err.statusText;
                 if(err.data && err.data.Detail){
@@ -58,9 +69,13 @@
         this.updateFn = updateFn;
         this.ObjConstructor = ObjConstructor;
 
-        this.updateFrequency = DEFAULT_UPDATE_FREQUENCY;
+        // the frequency that updates occur
+        this.updateFrequency = globalPollFrequency;
+        // then length of time to wait on an update
+        // before timing it out
         this.updateTimeout = DEFAULT_UPDATE_TIMEOUT;
         this.shouldUpdate = false;
+        this.backingOff = false;
     }
 
 
@@ -127,24 +142,44 @@
             // TODO - better algorithm
             this.updateFrequency *= 2;
             this.updateTimeout *= 2;
-            // TODO - expose a way to notify user that backoff is occurring
+            this.backingOff = true;
+
+            // don't backoff more than MAX_BACKOFF_TIME
+            if(this.updateFrequency >= MAX_BACKOFF_TIME){
+                this.updateFrequency = MAX_BACKOFF_TIME;
+                this.updateTimeout = MAX_BACKOFF_TIME * 2;
+            }
+
+            // notify user is backoff has gone beyond threshold
+            if(this.updateFrequency >= BACKOFF_NOTIFICATION_THRESHOLD){
+                $rootScope.$broadcast("backoff.thresholdReached", this);
+                console.warn("reached backoff threshold of", BACKOFF_NOTIFICATION_THRESHOLD);
+            }
         },
 
         // restores default update timing. when things are so nice again
         restoreUpdateTimers: function(){
-            this.updateFrequency = DEFAULT_UPDATE_FREQUENCY;
-            this.updateTimeout = DEFAULT_UPDATE_TIMEOUT;
+            if(this.updateFrequency !== globalPollFrequency){
+                this.updateFrequency = globalPollFrequency;
+                this.updateTimeout = DEFAULT_UPDATE_TIMEOUT;
+                $rootScope.$broadcast("backoff.reset", this);
+            }
         },
 
         // determines if updateManager should be run again,
         // and runs it if necessary
         updateManagerSchedule: function(){
             if(this.shouldUpdate){
+                let delay = this.updateFrequency;
+                // if backing off, apply small randomization
+                if(this.backingOff){
+                    delay *= BACKOFF_RANDOMIZATION;
+                }
                 // cancel any pending update
                 this.updateManagerCancel();
                 this.updatePromise = $timeout(() => {
                     this.updateManagerRun();
-                }, this.updateFrequency);
+                }, delay);
             }
         },
 
@@ -156,7 +191,6 @@
             this.update()
                 .then(() => {
                     this.restoreUpdateTimers();
-                    console.log("update success, restoring timers");
                 },
                 (err) => {
                     this.backoffUpdateTimers();

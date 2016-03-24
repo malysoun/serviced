@@ -10,11 +10,11 @@
     ["$scope", "$q", "$routeParams", "$location", "resourcesFactory",
     "authService", "$modalService", "$translate", "$notification",
     "$timeout", "servicesFactory", "miscUtils", "hostsFactory",
-    "poolsFactory", "CCUIState", "$cookies",
+    "poolsFactory", "CCUIState", "$cookies", "connectionStatus",
     function($scope, $q, $routeParams, $location, resourcesFactory,
     authService, $modalService, $translate, $notification,
     $timeout, servicesFactory, utils, hostsFactory,
-    poolsFactory, CCUIState, $cookies){
+    poolsFactory, CCUIState, $cookies, connectionStatus){
 
         // Ensure logged in
         authService.checkLogin($scope);
@@ -1007,10 +1007,14 @@
             poolsFactory.activate();
             poolsFactory.update();
 
+            connectionStatus.registerServices(hostsFactory, servicesFactory, poolsFactory);
+
             $scope.$on("$destroy", function() {
                 servicesFactory.deactivate();
                 hostsFactory.deactivate();
                 poolsFactory.deactivate();
+                connectionStatus.unregisterServices(hostsFactory, servicesFactory, poolsFactory);
+                console.log(connectionStatus);
             });
         }
 
