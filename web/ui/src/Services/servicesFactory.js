@@ -43,8 +43,8 @@
                 }
                 this.lastUpdate = now;
 
-                resourcesFactory.getServices(since)
-                    .success((data, status) => {
+                let p = resourcesFactory.getServices(since);
+                p.success((data, status) => {
                         // TODO - change backend to send
                         // updated, created, and deleted
                         // separately from each other

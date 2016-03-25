@@ -30,11 +30,6 @@
             this.notification = null;
         }
 
-        registerServices(...services){
-            services.forEach(service => {
-                this.registerService(service);
-            });
-        }
         registerService(service){
             let registeredService = {
                 service: service,
@@ -50,11 +45,6 @@
             this.registeredServices.push(registeredService);
         }
 
-        unregisterServices(...services){
-            services.forEach(service => {
-                this.unregisterService(service);
-            });
-        }
         unregisterService(service){
             // search the list of registered services for
             // the service in question
@@ -98,7 +88,7 @@
 
         // clear any services and notifications
         destroy(){
-            this.unregisterServices(this.registeredServices.map(registered => registered.service));
+            this.registeredServices.forEach(rs => this.unregisterService(rs.service));
             this.registeredServices = [];
             this.timingOutServices = [];
             if(this.notification){
@@ -106,7 +96,6 @@
                 this.notification = null;
             }
         }
-
     }
 
     var connectionStatus = new ConnectionStatus();

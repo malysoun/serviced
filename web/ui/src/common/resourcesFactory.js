@@ -269,16 +269,50 @@
 
             return function(/* args */){
                 var url = config.url.apply(null, arguments),
-                    payload;
+                    payload,
+                    // deferred for managing timeout
+                    timeoutDeferred = $q.defer(),
+                    // deferred that will be returned to the user
+                    deferred = $q.defer();
 
                 if(config.payload){
                     payload = config.payload.apply(null, arguments);
                 }
 
-                return $http[config.method](url, payload)
-                    .error(function(data, status) {
-                        redirectIfUnauthorized(status);
-                    });
+                $http({
+                    method: config.method,
+                    url: url,
+                    data: payload,
+                    timeout: timeoutDeferred.promise
+                }).success(function(data, status){
+                    deferred.resolve(data);
+                }).error(function(data, status) {
+                    // TODO - include data as well?
+                    deferred.reject(status);
+                    redirectIfUnauthorized(status);
+                });
+
+                // TODO - abort may eventually be implemented
+                // in promises, so may want to verify abort doesnt exist
+                deferred.abort = function(){
+                    timeoutDeferred.reject("timeout");
+                };
+
+                // TODO HACK FIX!
+                // all of our code expects angulars "http" promise
+                // and this returns a regular deferred. need to go
+                // through and fix all code to expect a regular
+                // promise
+                deferred.promise.success = function(fn){
+                    deferred.promise.then(fn);
+                    return deferred.promise;
+                };
+                deferred.promise.error = function(fn){
+                    deferred.promise.then(null, fn);
+                    return deferred.promise;
+                };
+
+                return deferred.promise;
             };
         }
 

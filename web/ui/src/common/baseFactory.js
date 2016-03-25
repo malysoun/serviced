@@ -30,14 +30,15 @@
     // by serviced configured polling frequency
     let globalPollFrequency = DEFAULT_UPDATE_FREQUENCY;
 
-    var $q, $timeout, $rootScope;
+    var $q, $timeout, $rootScope, connectionStatus;
 
     angular.module('baseFactory', []).
-    factory("baseFactory", ["$q", "$timeout", "$rootScope", "servicedConfig",
-    function(_$q, _$timeout, _$rootScope, servicedConfig){
+    factory("baseFactory", ["$q", "$timeout", "$rootScope", "servicedConfig", "connectionStatus",
+    function(_$q, _$timeout, _$rootScope, servicedConfig, _connectionStatus){
         $q = _$q;
         $timeout = _$timeout;
         $rootScope = _$rootScope;
+        connectionStatus = _connectionStatus;
 
         servicedConfig.getConfig()
             .then(config => {
@@ -88,52 +89,57 @@
         // objects based on id
         update: function(){
             var deferred = $q.defer();
-            this.updateFn()
-                .success((data, status) => {
-                    var included = [];
+            let p = this.updateFn();
+            p.success((data, status) => {
+                var included = [];
 
-                    for(let id in data){
-                        let obj = data[id];
+                for(let id in data){
+                    let obj = data[id];
 
-                        // update
-                        if(this.objMap[id]){
-                            this.objMap[id].update(obj);
+                    // update
+                    if(this.objMap[id]){
+                        this.objMap[id].update(obj);
 
-                        // new
-                        } else {
-                            this.objMap[id] = new this.ObjConstructor(obj);
-                            this.objArr.push(this.objMap[id]);
+                    // new
+                    } else {
+                        this.objMap[id] = new this.ObjConstructor(obj);
+                        this.objArr.push(this.objMap[id]);
+                    }
+
+                    included.push(id);
+                }
+
+                // delete
+                if(included.length !== Object.keys(this.objMap).length){
+                    // iterate objMap and find keys
+                    // not present in included list
+                    for(let id in this.objMap){
+                        if(included.indexOf(id) === -1){
+                            this.objArr.splice(this.objArr.indexOf(this.objMap[id]), 1);
+                            delete this.objMap[id];
                         }
-
-                        included.push(id);
                     }
+                }
 
-                    // delete
-                    if(included.length !== Object.keys(this.objMap).length){
-                        // iterate objMap and find keys
-                        // not present in included list
-                        for(let id in this.objMap){
-                            if(included.indexOf(id) === -1){
-                                this.objArr.splice(this.objArr.indexOf(this.objMap[id]), 1);
-                                delete this.objMap[id];
-                            }
-                        }
-                    }
+                deferred.resolve();
+            })
+            .error((data, status) => {
+                console.error("Unable to update factory", data);
+                deferred.reject("Unable to update factory", data);
+            })
+            .finally(() => {
+                // notify the first request is complete
+                if(!this.lastUpdate){
+                    $rootScope.$emit("ready");
+                }
 
-                    deferred.resolve();
-                })
-                .error((data, status) => {
-                    console.error("Unable to update factory", data);
-                    deferred.reject("Unable to update factory", data);
-                })
-                .finally(() => {
-                    // notify the first request is complete
-                    if(!this.lastUpdate){
-                        $rootScope.$emit("ready");
-                    }
+                this.lastUpdate = new Date().getTime();
+            });
 
-                    this.lastUpdate = new Date().getTime();
-                });
+            // if abort is available, pass it along
+            if(typeof(p.abort) === "function"){
+                deferred.abort = p.abort;
+            }
             return deferred.promise;
         },
 
@@ -188,25 +194,34 @@
         updateManagerRun: function(){
             let timeoutTimer;
             this.updateManagerCancel();
-            this.update()
-                .then(() => {
-                    this.restoreUpdateTimers();
-                },
-                (err) => {
-                    this.backoffUpdateTimers();
-                    console.log("backing off timers to", this.updateFrequency, "because:", err);
-                })
-                .finally(() => {
-                    // cancel timeout timer
-                    $timeout.cancel(timeoutTimer);
-                    this.updateManagerSchedule();
-                });
+            let p = this.update();
+            p.then(() => {
+                this.restoreUpdateTimers();
+            },
+            (err) => {
+                this.backoffUpdateTimers();
+                console.log("backing off timers to", this.updateFrequency, "because:", err);
+            })
+            .finally(() => {
+                // cancel timeout timer
+                $timeout.cancel(timeoutTimer);
+                this.updateManagerSchedule();
+            });
 
             // ensure no request exceeds a certain timeout
             timeoutTimer = $timeout(() => {
                 this.backoffUpdateTimers();
                 console.log("backing off timers to", this.updateFrequency,
                     "because request timed out after", this.updateTimeout);
+
+                // if possible, cancel xhr
+                if(typeof(p.abort) === "function"){
+                    console.log("aborting request");
+                    p.abort();
+                } else {
+                    console.log("no abort function :(");
+                }
+
                 this.updateManagerSchedule();
             }, this.updateTimeout);
         },
@@ -220,12 +235,14 @@
         // begins auto-update
         activate: function(){
             this.shouldUpdate = true;
+            connectionStatus.registerService(this);
             this.updateManagerRun();
         },
 
         // stops auto-update
         deactivate: function(){
             this.shouldUpdate = false;
+            connectionStatus.unregisterService(this);
             this.updateManagerCancel();
         },
 

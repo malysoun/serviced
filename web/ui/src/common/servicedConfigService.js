@@ -16,8 +16,8 @@
 
             resourcesFactory.getUIConfig()
                 // TODO - errors
-                .then(response => {
-                    d.resolve(response.data);
+                .then(data => {
+                    d.resolve(data);
                 },
                 err => {
                     d.reject(err);
