@@ -44,7 +44,7 @@ func (dfs *DistributedFilesystem) Backup(data BackupInfo, w io.Writer) error {
 	// write the backup metadata. This is too tiny to parallelize
 	metadataBuffer := &bytes.Buffer{}
 	if err := dfs.writeBackupMetadata(data, metadataBuffer); err != nil {
-		glog.V(2).Infof("Unable to write backup metadata: %s", err)
+		glog.Errorf("Unable to write backup metadata: %s", err)
 		return err
 	}
 	tarpipes = append(tarpipes, pipe.Read(metadataBuffer))
@@ -71,6 +71,7 @@ func (dfs *DistributedFilesystem) Backup(data BackupInfo, w io.Writer) error {
 	for _, snapshot := range data.Snapshots {
 		vol, info, err := dfs.getSnapshotVolumeAndInfo(snapshot)
 		if err != nil {
+			glog.Errorf("Could not get snapshot info: %s", err)
 			return err
 		}
 		// load the images from this snapshot
@@ -121,21 +122,35 @@ func (dfs *DistributedFilesystem) Backup(data BackupInfo, w io.Writer) error {
 		utils.ConcatTarStreams(tarpipes...),
 		pipe.Write(w),
 	)
-	glog.V(2).Infof("Beginning backup")
-	return pipe.Run(backupPipeline)
+	glog.Infof("Beginning backup")
+	err := pipe.Run(backupPipeline)
+	if err != nil {
+		glog.Errorf("Unable to complete backup: %s", err)
+		return err
+	}
+	glog.Infof("Backup complete")
+	return nil
 }
 
 // dockerSavePipe streams the tar archive output by Docker to pipe's stdout
 func (dfs *DistributedFilesystem) dockerSavePipe(images ...string) pipe.Pipe {
 	return pipe.TaskFunc(func(s *pipe.State) error {
-		return dfs.docker.SaveImages(images, s.Stdout)
+		if err := dfs.docker.SaveImages(images, s.Stdout); err != nil {
+			glog.Errorf("Unable to save Docker images: %s", err)
+			return err
+		}
+		return nil
 	})
 }
 
 // snapshotSavePipe returns a pipe that exports a given volume to the pipe's stdout
 func (dfs *DistributedFilesystem) snapshotSavePipe(vol volume.Volume, label string) pipe.Pipe {
 	return pipe.TaskFunc(func(s *pipe.State) error {
-		return vol.Export(label, "", s.Stdout)
+		if err := vol.Export(label, "", s.Stdout); err != nil {
+			glog.Errorf("Unable to export snapshot: %s", err)
+			return err
+		}
+		return nil
 	})
 }
 
@@ -148,17 +163,17 @@ func (dfs *DistributedFilesystem) writeBackupMetadata(data BackupInfo, w io.Writ
 	)
 	tarfile := tar.NewWriter(w)
 	defer tarfile.Close()
-	glog.V(2).Infof("Writing backup metadata")
+	glog.Infof("Writing backup metadata")
 	if jsonData, err = json.Marshal(data); err != nil {
 		return err
 	}
 	header := &tar.Header{Name: BackupMetadataFile, Size: int64(len(jsonData))}
 	if err := tarfile.WriteHeader(header); err != nil {
-		glog.V(2).Infof("Could not create metadata header for backup: %s", err)
+		glog.Errorf("Could not create metadata header for backup: %s", err)
 		return err
 	}
 	if _, err := tarfile.Write(jsonData); err != nil {
-		glog.V(2).Infof("Could not write backup metadata: %s", err)
+		glog.Errorf("Could not write backup metadata: %s", err)
 		return err
 	}
 	return nil

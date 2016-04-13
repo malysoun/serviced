@@ -25,7 +25,8 @@ import (
 // beneath a given prefix.
 func PrefixPath(prefix string) pipe.Pipe {
 	return pipe.TaskFunc(func(s *pipe.State) error {
-		reader := pipeTarReader(s.Stdin)
+		reader, subwriter := pipeTarReader(s.Stdin)
+		defer subwriter.Close()
 		writer := tar.NewWriter(s.Stdout)
 		for {
 			hdr, err := reader.Next()
@@ -54,7 +55,8 @@ func PrefixPath(prefix string) pipe.Pipe {
 func StripTarTerminator() pipe.Pipe {
 	// TODO: Make this more efficient by not bothering with a tar reader
 	return pipe.TaskFunc(func(s *pipe.State) error {
-		reader := pipeTarReader(s.Stdin)
+		reader, subwriter := pipeTarReader(s.Stdin)
+		defer subwriter.Close()
 		writer := tar.NewWriter(s.Stdout)
 		for {
 			hdr, err := reader.Next()
@@ -110,7 +112,7 @@ func ConcatTarStreams(pipes ...pipe.Pipe) pipe.Pipe {
 // io.Pipes in a way that, in certain situations, is incompatible with the tar
 // package. This allows us to control the closing of the io.Pipe in concert
 // with our tar.Reader.
-func pipeTarReader(r io.Reader) *tar.Reader {
+func pipeTarReader(r io.Reader) (*tar.Reader, *io.PipeWriter) {
 	var (
 		piper *io.PipeReader
 		pipew *io.PipeWriter
@@ -118,5 +120,5 @@ func pipeTarReader(r io.Reader) *tar.Reader {
 	piper, pipew = io.Pipe()
 	reader := tar.NewReader(piper)
 	go io.Copy(pipew, r)
-	return reader
+	return reader, pipew
 }
