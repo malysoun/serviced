@@ -23,6 +23,19 @@ import (
 	"github.com/zenoss/glog"
 )
 
+// Dir is an empty path node
+type Dir struct {
+	version interface{}
+}
+
+func (d *Dir) Version() interface{} {
+	return d.version
+}
+
+func (d *Dir) SetVersion(version interface{}) {
+	d.version = version
+}
+
 // EventType is a numerical type to identify event types.
 type EventType int32
 

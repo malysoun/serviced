@@ -21,7 +21,6 @@ import (
 	"github.com/control-center/serviced/coordinator/client"
 	// "github.com/control-center/serviced/health"
 
-	"github.com/control-center/serviced/domain/host"
 	"github.com/control-center/serviced/domain/service"
 	"github.com/control-center/serviced/domain/servicestate"
 	"github.com/zenoss/glog"
@@ -78,21 +77,16 @@ type HostStateHandler interface {
 
 // HostStateListener is the listener for monitoring service instances
 type HostStateListener struct {
-	conn     client.Connection
-	handler  HostStateHandler
-	hostID   string
-	registry string
-	nodelock sync.Mutex
-	done     bool
+	conn    client.Connection
+	handler HostStateHandler
+	hostID  string
 }
 
 // NewHostListener instantiates a HostListener object
 func NewHostStateListener(handler HostStateHandler, hostID string) *HostStateListener {
 	return &HostStateListener{
-		handler:  handler,
-		hostID:   hostID,
-		nodelock: sync.Mutex{},
-		done:     false,
+		handler: handler,
+		hostID:  hostID,
 	}
 }
 
@@ -101,45 +95,14 @@ func (l *HostStateListener) SetConnection(conn client.Connection) { l.conn = con
 
 // GetPath implements zzk.Listener
 func (l *HostStateListener) GetPath(nodes ...string) string {
-	return hostpath(append([]string{l.hostID}, nodes...)...)
+	return hostpath(append([]string{l.hostID}, "instances", nodes...)...)
 }
 
 // Ready adds an ephemeral node to the host registry
-func (l *HostStateListener) Ready() error {
-	l.nodelock.Lock()
-	defer l.nodelock.Unlock()
-	if l.done {
-		return nil
-	}
-	// get the host node
-	var host host.Host
-	if err := l.conn.Get(hostpath(l.hostID), &HostNode{Host: &host}); err != nil {
-		return err
-	}
-	// register the host or verify that the host is still registered
-	if l.registry != "" {
-		if exists, err := l.conn.Exists(l.registry); err != nil && err != client.ErrNoNode {
-			return err
-		} else if exists {
-			return nil
-		}
-	}
-	var err error
-	if l.registry, err = registerHost(l.conn, &host); err != nil {
-		return err
-	}
-	return nil
-}
+func (l *HostStateListener) Ready() error { return nil }
 
 // Done removes the ephemeral node from the host registry
-func (l *HostStateListener) Done() {
-	l.nodelock.Lock()
-	defer l.nodelock.Unlock()
-	l.done = true
-	if err := l.conn.Delete(l.registry); err != nil {
-		glog.Warningf("Could not unregister host %s: %s", l.hostID, err)
-	}
-}
+func (l *HostStateListener) Done() {}
 
 // PostProcess implements zzk.Listener
 func (l *HostStateListener) PostProcess(p map[string]struct{}) {}
@@ -150,10 +113,11 @@ func (l *HostStateListener) Spawn(shutdown <-chan interface{}, stateID string) {
 	var processLock sync.Mutex
 
 	// Get the HostState node
+	hostpth := l.GetPath(stateID)
 	var hs HostState
-	if err := l.conn.Get(hostpath(l.hostID, stateID), &hs); err != nil {
+	if err := l.conn.Get(hostpth, &hs); err != nil {
 		glog.Errorf("Could not load host instance %s on host %s: %s", stateID, l.hostID, err)
-		l.conn.Delete(hostpath(l.hostID, stateID))
+		l.conn.Delete(hostpth)
 		return
 	}
 	defer removeInstance(l.conn, hs.ServiceID, hs.HostID, hs.ServiceStateID)
@@ -168,13 +132,7 @@ func (l *HostStateListener) Spawn(shutdown <-chan interface{}, stateID string) {
 	done := make(chan struct{})
 	defer func(channel *chan struct{}) { close(*channel) }(&done)
 	for {
-		// Listen to the registry node
-		var h host.Host
-		hEvt, err := l.conn.GetW(l.registry, &HostNode{Host: &h}, done)
-		if err != nil {
-			glog.Errorf("Failed to get ephemeral node for host %s: %s", l.hostID, err)
-			return
-		}
+
 		// Get the HostState instance
 		hsEvt, err := l.conn.GetW(hostpath(l.hostID, stateID), &hs, done)
 		if err != nil {
@@ -237,14 +195,6 @@ func (l *HostStateListener) Spawn(shutdown <-chan interface{}, stateID string) {
 		case <-processDone:
 			glog.Infof("Process ended for instance %s for service %s (%s)", stateID, svc.Name, svc.ID)
 			processDone = nil // CC-1341 - once the process exits, don't read this channel again
-		case e := <-hEvt:
-			glog.V(3).Infof("Host %s received an event: %+v", l.hostID, e)
-			if e.Type == client.EventNodeDeleted {
-				if err := l.Ready(); err != nil {
-					glog.Errorf("Failed to add ephemeral node for host %s: %+v", l.hostID, err)
-					return
-				}
-			}
 		case e := <-hsEvt:
 			glog.V(3).Infof("Host instance %s for service %s (%s) received an event: %+v", stateID, svc.Name, svc.ID, e)
 			if e.Type == client.EventNodeDeleted {

@@ -125,6 +125,17 @@ func (c *Connection) Create(path string, node client.Node) error {
 	return c.create(path, node)
 }
 
+// CreateIfExists adds a node at the specified path only if the parent node
+// exists.
+func (c *Connection) CreateIfExists(path string, node client.Node) error {
+	c.RLock()
+	defer c.RUnlock()
+	if err := c.isClosed(); err != nil {
+		return err
+	}
+	return c.create(path, node)
+}
+
 func (c *Connection) create(p string, node client.Node) error {
 	bytes, err := json.Marshal(node)
 	if err != nil {
@@ -187,6 +198,17 @@ func (c *Connection) CreateEphemeral(path string, node client.Node) (string, err
 		return "", err
 	}
 	if err := c.ensurePath(path); err != nil {
+		return "", err
+	}
+	return c.createEphemeral(path, node)
+}
+
+// CreateEphemeralIfExists creates a node whose existance depends on the
+// persistence of the connection, but only if its parents exist.
+func (c *Connection) CreateEphemeralIfExists(path string, node client.Node) (string, error) {
+	c.RLock()
+	defer c.RUnlock()
+	if err := c.isClosed(); err != nil {
 		return "", err
 	}
 	return c.createEphemeral(path, node)

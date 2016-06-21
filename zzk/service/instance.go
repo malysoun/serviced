@@ -20,20 +20,36 @@ import (
 	"github.com/zenoss/glog"
 )
 
+// getServiceAndInstanceID parses a stateID in the form of serviceID-instanceID
+func getServiceAndInstanceID(stateID string) (string, string) {
+	parts := strings.SplitN(stateID, "-", 2)
+	if len(parts) > 1 {
+		return parts[0], parts[1]
+	}
+	return "", parts[0]
+}
+
 // addInstance creates a new service state and host instance
 func addInstance(conn client.Connection, state ss.ServiceState) error {
 	glog.V(2).Infof("Adding instance %+v", state)
+
 	// check the object
 	if err := state.ValidEntity(); err != nil {
 		glog.Errorf("Could not validate service state %+v: %s", state, err)
 		return err
 	}
 
-	spath := servicepath(state.ServiceID, state.ID)
+	// set up the host instances 
+	if err := conn.CreateIfExists(
+
+	// initialize the data to be written to the coordinator
+	_, instanceID := getServiceAndInstanceID(state.ID)
+	spath := servicepath(state.ServiceID, instanceID)
 	snode := &ServiceStateNode{ServiceState: &state}
-	hpath := hostpath(state.HostID, state.ID)
+	hpath := hostpath(state.HostID, "instances", state.ID)
 	hnode := NewHostState(&state)
 
+	// build the transaction
 	t := conn.NewTransaction()
 	t.Create(spath, snode)
 	t.Create(hpath, hnode)
@@ -48,34 +64,30 @@ func addInstance(conn client.Connection, state ss.ServiceState) error {
 // removeInstance removes the service state and host instances
 func removeInstance(conn client.Connection, serviceID, hostID, stateID string) error {
 	glog.V(2).Infof("Removing instance %s", stateID)
-
-	spath := servicepath(serviceID, stateID)
-	hpath := hostpath(hostID, stateID)
-
+	_, instanceID := getServiceAndInstanceID(stateID)
 	t := conn.NewTransaction()
 
-	spresent, err := conn.Exists(spath)
-	if err != nil {
-		glog.Errorf("Error checking the existence of service state node %s for service %s on host %s: %s", stateID, serviceID, hostID, err)
+	// remove the service instance if found
+	spath := servicepath(serviceID, instanceID)
+	if ok, err := conn.Exists(spath); err != nil {
+		glog.Errorf("Error checking path %s: %s", spath, err)
 		return err
-	}
-
-	if spresent {
+	} else if ok {
 		t.Delete(spath)
 	}
 
-	hpresent, err := conn.Exists(hpath)
-	if err != nil {
-		glog.Errorf("Error checking the existence of host state node %s for service %s on host %s: %s", stateID, serviceID, hostID, err)
+	// remove the host instance if found
+	hpath := hostpath(hostID, "instances", stateID)
+	if ok, err := conn.Exists(hpath); err != nil {
+		glog.Errorf("Error checking path %s: %s", hpath, err)
 		return err
-	}
-
-	if hpresent {
+	} else if ok {
 		t.Delete(hpath)
 	}
 
+	// commit the transaction
 	if err := t.Commit(); err != nil {
-		glog.Errorf("Could not delete service state nodes %s for service %s on host %s: %s", stateID, serviceID, hostID, err)
+		glog.Errorf("Could not delete instance at %s and %s: %s", spath, hpath, err)
 		return err
 	}
 
@@ -85,28 +97,28 @@ func removeInstance(conn client.Connection, serviceID, hostID, stateID string) e
 // updateInstance updates the service state and host instances
 func updateInstance(conn client.Connection, hostID, stateID string, mutate func(*HostState, *ss.ServiceState)) error {
 	glog.V(2).Infof("Updating instance %s", stateID)
+	_, instanceID := getServiceAndInstanceID(stateID)
 
-	hpath := hostpath(hostID, stateID)
-	var hsdata HostState
-	if err := conn.Get(hpath, &hsdata); err != nil {
-		glog.Errorf("Could not get instance %s for host %s: %s", stateID, hostID, err)
-		return err
-	}
-	serviceID := hsdata.ServiceID
-	spath := servicepath(serviceID, stateID)
-	var ssnode ServiceStateNode
-	if err := conn.Get(spath, &ssnode); err != nil {
-		glog.Errorf("Could not get instance %s for service %s: %s", stateID, serviceID, err)
+	// get the host state node
+	hpath := hostpath(hostID, "instances", stateID)
+	hdata := &HostState{}
+	if err := conn.Get(hpath, hdata); err != nil {
+		glog.Errorf("Could not get instance %s at host %s: %s", stateID, hostID, err)
 		return err
 	}
 
-	mutate(&hsdata, ssnode.ServiceState)
+	// get the service state node
+	spath := servicepath(hdata.ServiceID, instanceID)
+	sdata := &ServiceStateNode{}
+	if err := conn.Get(spath, sdata); err != nil {
+		glog.Errorf("Could not get instance %s for service %s: %s", instanceID, hdata.ServiceID, err)
+		return err
+	}
 
-	t := conn.NewTransaction()
-	t.Set(hpath, &hsdata)
-	t.Set(spath, &ssnode)
-	if err := t.Commit(); err != nil {
-		glog.Errorf("Could not update service state %s for service %s on host %s: %s", stateID, serviceID, hostID, err)
+	// transform the data and commit the changes transactionally
+	mutate(hdata, sdata)
+	if err := conn.NewTransaction().Set(hpath, hdata).Set(spath, sdata).Commit(); err != nil {
+		glog.Errorf("Could not update instance %s on host %s: %s", stateID, hostID, err)
 		return err
 	}
 

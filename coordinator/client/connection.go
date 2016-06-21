@@ -54,8 +54,10 @@ type Connection interface {
 	SetOnClose(func(int))
 	NewTransaction() Transaction
 	Create(path string, node Node) error
+	CreateIfExists(path string, node Node) error
 	CreateDir(path string) error
 	CreateEphemeral(path string, node Node) (string, error)
+	CreateEphemeralIfExists(path string, node Node)
 	Exists(path string) (bool, error)
 	Delete(path string) error
 	ChildrenW(path string, done <-chan struct{}) (children []string, ev <-chan Event, err error)
